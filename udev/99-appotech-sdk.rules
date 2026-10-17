@@ -1,0 +1,5 @@
+# JT5295 stock firmware and BootROM/SDK laboratory identities.
+SUBSYSTEM=="usb", ATTR{idVendor}=="1908", ATTR{idProduct}=="3283", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="1908", ATTR{idProduct}=="3319", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="1908", ATTRS{idProduct}=="3283", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="1908", ATTRS{idProduct}=="3319", GROUP="plugdev", MODE="0660", TAG+="uaccess"

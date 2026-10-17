@@ -1,0 +1,6 @@
+/build/
+/toolchain/build/
+/toolchain/install/
+/toolchain/downloads/
+__pycache__/
+.pytest_cache/
