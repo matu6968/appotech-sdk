@@ -4,10 +4,21 @@ CC := $(CROSS)gcc
 AR := $(CROSS)ar
 OBJDUMP := $(CROSS)objdump
 SIZE := $(CROSS)size
-BUILD := build
+BOARD ?= action-vision
+BOARDS := action-vision silvergear-3222882
+ifeq ($(filter $(BOARD),$(BOARDS)),)
+$(error BOARD must be one of: $(BOARDS))
+endif
+BUILD ?= $(if $(filter action-vision,$(BOARD)),build,build/$(BOARD))
+BOARD_INPUTS := $(sort $(wildcard boards/$(BOARD)/*))
+DISPLAY_SOURCE := $(if $(filter silvergear-3222882,$(BOARD)),src/display_st7789.c,src/display.c)
 OPT ?= -Os
 LTO ?= 1
 HEAP_SIZE ?= 16384
+# sd-demo overflows the 128 KiB runtime window on Silvergear (larger ST7789 driver) by a few bytes at the default heap.
+ifeq ($(BOARD)-$(EXAMPLE),silvergear-3222882-sd-demo)
+HEAP_SIZE := 12288
+endif
 USB_VID ?= 0x1908
 USB_PID ?= 0x3319
 FORCE_FULL_SPEED ?= 0
@@ -51,6 +62,8 @@ LVGL_ENABLED := $(filter lvgl-demo,$(EXAMPLE))
 # the whole zero gap below it (~620 KB of flash). Its linker script keeps those drivers next to the main code instead.
 LINKER_SCRIPT := $(if $(LVGL_ENABLED),$(BUILD)/ram-compact.ld,linker/ram.ld)
 LVGL_DEMO ?= benchmark
+# LVGL performance monitor (FPS/CPU/refresh in the benchmark's scene label): on for the benchmark, off for widgets.
+LVGL_PERF ?= $(if $(filter benchmark,$(LVGL_DEMO)),1,0)
 LVGL_DEMOS := benchmark widgets
 ifneq ($(LVGL_ENABLED),)
 ifeq ($(filter $(LVGL_DEMO),$(LVGL_DEMOS)),)
@@ -62,23 +75,27 @@ LVGL_DEMO_SOURCES := $(if $(LVGL_ENABLED),third_party/lvgl/demos/lv_demos.c $(sh
 LVGL_OBJECTS := $(patsubst third_party/lvgl/%.c,$(BUILD)/lvgl/%.o,$(LVGL_SOURCES) $(LVGL_DEMO_SOURCES))
 LVGL_BUILD_INPUTS := $(if $(LVGL_ENABLED),$(LVGL_SOURCES) $(LVGL_DEMO_SOURCES) $(shell find third_party/lvgl/include -type f -name '*.h') third_party/lvgl/lvgl.h include/lv_conf.h include/appotech/lvgl_port.h src/lvgl_port.c linker/ram.ld)
 MAIN := examples/$(EXAMPLE)/main.c
+MAIN_INPUTS := $(MAIN)
 LIBC := $(PREFIX)/or1k-appotech-elf/lib/libc.a
 LIBGCC := $(shell $(CC) -print-libgcc-file-name)
-BUILD_ID := $(shell { cat src/*.c src/*.S src/*.inc third_party/fatfs/ff.c third_party/fatfs/ffunicode.c third_party/fatfs/ff.h third_party/fatfs/ffconf.h third_party/fatfs/diskio.h include/appotech/*.h boards/action-vision/board.h linker/ram.ld $(MAIN) third_party/stb/stb_image.h tools/prepare_stb.py $(LVGL_BUILD_INPUTS) $(LIBC) $(LIBGCC) $(wildcard toolchain/sources.lock.json); printf '%s\n' '$(OPT)' '$(LTO)' '$(HEAP_SIZE)' '$(USB_VID)' '$(USB_PID)' '$(FORCE_FULL_SPEED)' '$(CPU_MHZ)' '$(HW_MULDIV)' '$(APX_SPI_TRACE)' '$(APX_TRACE_KEEP_WDT)' '$(APX_LAUNCH_SETTLE_TICKS)' '$(APX_LAUNCH_READS)' '$(APX_NO_CACHE_ENABLE)' '$(APX_LAUNCH_WDT_STOP)' '$(APX_LAUNCH_READ_LIST)' '$(APX_LAUNCH_TRACE_MODE)' '$(APX_USB_ENUM_TIMEOUT_TICKS)' '$(APX_SPI_TRACE_RING_ONLY)' '$(LVGL_INSTRUMENT)' '$(EXAMPLE)' '$(if $(LVGL_ENABLED),$(LVGL_DEMO))'; } | sha256sum | cut -c1-16)
-CFLAGS := $(OPT) -g -mappotech -fno-delayed-branch -fno-pic -ffunction-sections -fdata-sections -fno-common -Wall -Wextra -Werror -Iinclude -Iboards/action-vision -Ithird_party/fatfs -DAPX_BUILD_ID='"$(BUILD_ID)"' -DAPX_USB_VID=$(USB_VID) -DAPX_USB_PID=$(USB_PID) -DAPX_USB_FORCE_FULL_SPEED=$(FORCE_FULL_SPEED) -DAPX_CPU_MHZ=$(CPU_MHZ) -DAPX_SPI_TRACE=$(APX_SPI_TRACE) -DAPX_TRACE_KEEP_WDT=$(APX_TRACE_KEEP_WDT) -DAPX_LAUNCH_SETTLE_TICKS=$(APX_LAUNCH_SETTLE_TICKS) -DAPX_LAUNCH_TRACE_MODE=$(APX_LAUNCH_TRACE_MODE) -DAPX_NO_CACHE_ENABLE=$(APX_NO_CACHE_ENABLE) -DAPX_USB_ENUM_TIMEOUT_TICKS=$(APX_USB_ENUM_TIMEOUT_TICKS) -DAPX_SPI_TRACE_RING_ONLY=$(APX_SPI_TRACE_RING_ONLY) -DAPX_LVGL_INSTRUMENT=$(LVGL_INSTRUMENT) -DAPX_LAUNCH_READS=$(APX_LAUNCH_READS) -DAPX_LAUNCH_WDT_STOP=$(APX_LAUNCH_WDT_STOP) '-DAPX_LAUNCH_READ_LIST=$(APX_LAUNCH_READ_LIST)'
+BUILD_ID := $(shell { cat src/*.c src/*.S src/*.inc src/*.h third_party/fatfs/ff.c third_party/fatfs/ffunicode.c third_party/fatfs/ff.h third_party/fatfs/ffconf.h third_party/fatfs/diskio.h include/appotech/*.h $(BOARD_INPUTS) linker/ram.ld $(MAIN_INPUTS) third_party/stb/stb_image.h tools/prepare_stb.py $(LVGL_BUILD_INPUTS) $(LIBC) $(LIBGCC) $(wildcard toolchain/sources.lock.json); printf '%s\n' '$(BOARD)' '$(OPT)' '$(LTO)' '$(HEAP_SIZE)' '$(USB_VID)' '$(USB_PID)' '$(FORCE_FULL_SPEED)' '$(CPU_MHZ)' '$(HW_MULDIV)' '$(APX_SPI_TRACE)' '$(APX_TRACE_KEEP_WDT)' '$(APX_LAUNCH_SETTLE_TICKS)' '$(APX_LAUNCH_READS)' '$(APX_NO_CACHE_ENABLE)' '$(APX_LAUNCH_WDT_STOP)' '$(APX_LAUNCH_READ_LIST)' '$(APX_LAUNCH_TRACE_MODE)' '$(APX_USB_ENUM_TIMEOUT_TICKS)' '$(APX_SPI_TRACE_RING_ONLY)' '$(LVGL_INSTRUMENT)' '$(EXAMPLE)' '$(if $(LVGL_ENABLED),$(LVGL_DEMO) perf$(LVGL_PERF))'; } | sha256sum | cut -c1-16)
+CFLAGS := $(OPT) -g -mappotech -fno-delayed-branch -fno-pic -ffunction-sections -fdata-sections -fno-common -Wall -Wextra -Werror -Iinclude -Iboards/$(BOARD) -Ithird_party/fatfs -DAPX_BUILD_ID='"$(BUILD_ID)"' -DAPX_USB_VID=$(USB_VID) -DAPX_USB_PID=$(USB_PID) -DAPX_USB_FORCE_FULL_SPEED=$(FORCE_FULL_SPEED) -DAPX_CPU_MHZ=$(CPU_MHZ) -DAPX_SPI_TRACE=$(APX_SPI_TRACE) -DAPX_TRACE_KEEP_WDT=$(APX_TRACE_KEEP_WDT) -DAPX_LAUNCH_SETTLE_TICKS=$(APX_LAUNCH_SETTLE_TICKS) -DAPX_LAUNCH_TRACE_MODE=$(APX_LAUNCH_TRACE_MODE) -DAPX_NO_CACHE_ENABLE=$(APX_NO_CACHE_ENABLE) -DAPX_USB_ENUM_TIMEOUT_TICKS=$(APX_USB_ENUM_TIMEOUT_TICKS) -DAPX_SPI_TRACE_RING_ONLY=$(APX_SPI_TRACE_RING_ONLY) -DAPX_LVGL_INSTRUMENT=$(LVGL_INSTRUMENT) -DAPX_LAUNCH_READS=$(APX_LAUNCH_READS) -DAPX_LAUNCH_WDT_STOP=$(APX_LAUNCH_WDT_STOP) '-DAPX_LAUNCH_READ_LIST=$(APX_LAUNCH_READ_LIST)'
 ifneq ($(LVGL_ENABLED),)
-CFLAGS += -Ithird_party/lvgl -Ithird_party/lvgl/include -DLV_CONF_INCLUDE_SIMPLE -DAPX_LVGL_DEMO='"$(LVGL_DEMO)"'
+CFLAGS += -Ithird_party/lvgl -Ithird_party/lvgl/include -DLV_CONF_INCLUDE_SIMPLE -DAPX_LVGL_DEMO='"$(LVGL_DEMO)"' -DAPX_LVGL_PERF=$(LVGL_PERF)
 endif
 ifeq ($(LTO),1)
 CFLAGS += -flto -fuse-linker-plugin
 AR := $(CROSS)gcc-ar
 NO_LTO_CFLAGS := $(filter-out -flto -fuse-linker-plugin,$(CFLAGS))
-LTO_PLACED_OBJECTS := $(addprefix $(BUILD)/,image.o uart.o adc.o battery.o spi.o camera.o camera_files.o audio.o audio_files.o microphone.o microphone_files.o jpeg.o jpeg_files.o ffunicode.o) $(LVGL_OBJECTS)
+LTO_PLACED_OBJECTS := $(addprefix $(BUILD)/,image.o uart.o adc.o battery.o spi.o printer.o printer_render.o photo_prepare.o camera.o camera_files.o audio.o audio_files.o microphone.o microphone_files.o jpeg.o jpeg_files.o ffunicode.o) $(LVGL_OBJECTS)
 # Keep the libc stream and heap hooks visible across LTO/plugin archive resolution.
 LTO_LDFLAGS := -Wl,-u,stdout,-u,sbrk
 endif
-OBJECTS := $(BUILD)/runtime.o $(BUILD)/trace.o $(BUILD)/boot_marks.o $(BUILD)/exception.o $(BUILD)/spi_boot.o $(BUILD)/spi_overlay.o $(BUILD)/clock.o $(BUILD)/clock_pair.o $(BUILD)/usb.o $(BUILD)/debug.o $(BUILD)/display.o $(BUILD)/sd.o $(BUILD)/storage.o $(BUILD)/storage_stdio.o $(BUILD)/fatfs_diskio.o $(BUILD)/image.o $(BUILD)/uart.o $(BUILD)/adc.o $(BUILD)/battery.o $(BUILD)/spi.o $(BUILD)/gpio.o $(BUILD)/buttons.o $(BUILD)/watchdog.o $(BUILD)/power.o $(BUILD)/jpeg.o $(BUILD)/jpeg_files.o $(BUILD)/audio.o $(BUILD)/audio_files.o $(BUILD)/microphone.o $(BUILD)/microphone_files.o $(BUILD)/camera.o $(BUILD)/camera_files.o
+OBJECTS := $(BUILD)/runtime.o $(BUILD)/trace.o $(BUILD)/boot_marks.o $(BUILD)/exception.o $(BUILD)/spi_boot.o $(BUILD)/spi_overlay.o $(BUILD)/clock.o $(BUILD)/clock_pair.o $(BUILD)/usb.o $(BUILD)/debug.o $(BUILD)/display.o $(BUILD)/sd.o $(BUILD)/storage.o $(BUILD)/storage_stdio.o $(BUILD)/fatfs_diskio.o $(BUILD)/image.o $(BUILD)/uart.o $(BUILD)/adc.o $(BUILD)/battery.o $(BUILD)/spi.o $(BUILD)/gpio.o $(BUILD)/buttons.o $(BUILD)/printer.o $(BUILD)/watchdog.o $(BUILD)/power.o $(BUILD)/jpeg.o $(BUILD)/jpeg_files.o $(BUILD)/audio.o $(BUILD)/audio_files.o $(BUILD)/microphone.o $(BUILD)/microphone_files.o $(BUILD)/camera.o $(BUILD)/camera_files.o
 FATFS_OBJECTS := $(BUILD)/ff.o $(BUILD)/ffunicode.o
+ifeq ($(BOARD),silvergear-3222882)
+OBJECTS += $(BUILD)/printer_reference.o $(BUILD)/printer_render.o $(BUILD)/photo_prepare.o
+endif
 ifeq ($(HW_MULDIV),1)
 OBJECTS += $(BUILD)/hwmuldiv.o
 # -u: pull the member from libappotech.a even when the only references are libcalls the LTO plugin creates late
@@ -106,6 +123,8 @@ $(BUILD)/image.o: src/image.c $(BUILD)/stb/stb_image_sdk.h tools/check_image_sta
 	$(CC) $(filter-out -flto -fuse-linker-plugin,$(CFLAGS)) -I$(BUILD)/stb -Wno-unused-function -fstack-usage -MMD -MP -c $< -o $@
 	python3 tools/check_image_stack.py $(BUILD)/image.su
 $(BUILD)/%.o: src/%.c $(BUILD)/config.stamp | $(BUILD)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+$(BUILD)/display.o: $(DISPLAY_SOURCE) $(BOARD_INPUTS) $(BUILD)/config.stamp | $(BUILD)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 $(BUILD)/%.o: src/%.S $(BUILD)/config.stamp | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -136,7 +155,7 @@ $(BUILD)/$(EXAMPLE).elf: $(BUILD)/startup.o $(BUILD)/main.o $(BUILD)/libappotech
 	$(SIZE) $@
 $(BUILD)/$(EXAMPLE).manifest.json: $(BUILD)/$(EXAMPLE).elf tools/manifest.py tools/check_clock_elf.py
 	python3 tools/check_clock_elf.py $< --output $(BUILD)/$(EXAMPLE).clock-check.json
-	python3 tools/manifest.py $< --prefix "$(PREFIX)" --build-id $(BUILD_ID) --vid $(USB_VID) --pid $(USB_PID) --opt=$(OPT) --lto=$(LTO) --heap $(HEAP_SIZE) --full-speed $(FORCE_FULL_SPEED) --cpu-mhz $(CPU_MHZ)
+	python3 tools/manifest.py $< --prefix "$(PREFIX)" --build-id $(BUILD_ID) --vid $(USB_VID) --pid $(USB_PID) --opt=$(OPT) --lto=$(LTO) --heap $(HEAP_SIZE) --full-speed $(FORCE_FULL_SPEED) --cpu-mhz $(CPU_MHZ) --board $(BOARD)
 clean:
 	rm -f $(BUILD)/*.o $(BUILD)/*.a $(BUILD)/*.d $(BUILD)/$(EXAMPLE).* $(BUILD)/config.stamp
 	rm -rf $(BUILD)/lvgl

@@ -1,0 +1,151 @@
+{
+  "date": "2026-11-07",
+  "checks": [
+    {
+      "command": "python3 tools/test_silvergear_models.py",
+      "result": "passed; ASan/UBSan signal phases, offline/analog orchestration, ST7789, production and native-reference printer+real GPIO, PHY, buttons+ADC, camera models"
+    },
+    {
+      "command": "python3 tools/test_battery_spi_model.py",
+      "result": "passed; includes battery conversion deferral and stale-sample rejection"
+    },
+    {
+      "command": "python3 tools/test_silvergear_spr_ledger.py",
+      "result": "5 tests passed"
+    },
+    {
+      "cwd": "apxtool",
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q",
+      "result": "178 passed in 9.20s"
+    },
+    {
+      "command": "git diff --check (both repos)",
+      "result": "passed"
+    },
+    {
+      "command": "python3 tools/test_silvergear_models.py (after board mapping correction)",
+      "result": "passed; log build/printer-bringup/accepted-models.log"
+    },
+    {
+      "cwd": "apxtool",
+      "command": "python3 -m pytest -q tests/test_printer.py tests/test_printer_bench.py (after read-only camera-info bench support)",
+      "result": "7 passed in 0.04s"
+    },
+    {
+      "command": "python3 tools/test_silvergear_models.py (lengthwise conversion)",
+      "result": "passed; log build/printer-bringup/lengthwise-models.log; asymmetric rotation, padded pitch, scaling, capacity and guards verified"
+    },
+    {
+      "command": "python3 tools/test_silvergear_models.py (photo tear feed)",
+      "result": "passed; log build/printer-bringup/tear-feed-models.log; exact phase continuity/count, no heat, cancellation and paper-loss cleanup during tail, no next-job tail leakage"
+    },
+    {
+      "command": "python3 tools/test_silvergear_models.py (calibrated256-step photo finish)",
+      "result": "passed; log build/printer-bringup/tear-position-models.log;258 total phases for one-row photo, constant no-heat tail, cancellation/paper loss and cleanup"
+    },
+    {
+      "command": "python3 tools/test_silvergear_models.py (320-step tear buffer)",
+      "result": "passed; log build/printer-bringup/tear-buffer-models.log;322 motor phases for a one-row photo, no heat, cancellation, paper-loss cleanup and subsequent job behavior"
+    }
+  ],
+  "source_sha256": {
+    "src/printer.c": "8e03b2644f32de27a93d421efb4d2bcc20606dbb68c4c405ce678df68803287e",
+    "src/battery.c": "f7cb0656eca641a1f9d3cc6834048dc72eb13be1d03792098a2018aeb923b510",
+    "src/battery_internal.h": "a557f3995a59d58fdf150a41dd0c1967212af492d694079aef50c7d83c9d113b",
+    "src/printer_reference.S": "d1870fdf9a8c7e2d7f0d154750e3e4d6aea64ac55d95fc02780658fbd417d909",
+    "src/printer_reference_gpio.S": "3b0a6a4fe657d04ed293eca8bf245609e8c9420d984c636698d4d6e1ec8d70ff",
+    "tests/printer_model.c": "9674bb69567e9ca1b30efae975646743803ff417eea35debee957fb976da1675",
+    "tests/battery_spi_model.c": "0f45ebbcd3257bee0b18ecec1ec5bf0fddc341de974b2e9d82f4f055a20e04ec",
+    "tests/printer_signal_model.c": "09afbe0901efb35e0d6ad546fc47e8017c2f034186b9fb7a62977a1762fa35c9",
+    "tests/printer_reference_battery_model.c": "94dbe378e14afccdb9631ba8f55ed8cd55c027444ebff995da84a5411fa1098b",
+    "tools/silvergear_spr_ledger.py": "01f1a3396275dea506043db229be12ac235b7bd93f0b5c83f300cbb21ad104ad",
+    "boards/silvergear-3222882/board.h": "54b77d79492c849acf38ebbe68cc0ea2f2d95489fa3682d78f4fb15266b6548f"
+  },
+  "builds": {
+    "printer-test": {
+      "manifest": "appotech-sdk/build/printer-bringup/final-production/printer-test.manifest.json",
+      "build_id": "bf7db22520953000",
+      "elf_sha256": "2abe75d2785b07a66a252b677c5b275238ccaaf6496544ca4cc571f4f4459d7a",
+      "clock_check": "passed"
+    },
+    "printer-camera-demo": {
+      "manifest": "appotech-sdk/build/printer-bringup/final-camera/printer-camera-demo.manifest.json",
+      "build_id": "1d2432c6eeb225c1",
+      "elf_sha256": "48988e8c4e7580aa9e64eacdfbf8f01c19b8910a65b5d9030b5f27aa78fafb76",
+      "clock_check": "passed"
+    },
+    "printer-test (corrected physical buttons)": {
+      "manifest": "build/printer-bringup/accepted-production/printer-test.manifest.json",
+      "build_id": "ecca2c1489cb2d45",
+      "elf_sha256": "7ff3ab434c35dbaafde1c4814472ccac2441e12f671f0f1c7184f915fca88829",
+      "clock_check": "passed"
+    },
+    "printer-camera-demo (corrected physical buttons)": {
+      "manifest": "build/printer-bringup/accepted-camera/printer-camera-demo.manifest.json",
+      "build_id": "69e6f7dd52f30fed",
+      "elf_sha256": "766e36a04995a31921715c499321a4a853f6ace467d019e9a6fe21ba49c4d636",
+      "clock_check": "passed"
+    },
+    "printer-camera-demo (lengthwise photo)": {
+      "manifest": "build/printer-bringup/lengthwise-camera/printer-camera-demo.manifest.json",
+      "build_id": "b1ebbb5cd8912000",
+      "elf_sha256": "6f1965a6aec23570623ea8e13d23f232d5a7de5688ce355b460392f301ea719e",
+      "clock_check": "passed"
+    },
+    "printer-test (lengthwise photo)": {
+      "manifest": "build/printer-bringup/lengthwise-production/printer-test.manifest.json",
+      "build_id": "5a553836bc172ff9",
+      "elf_sha256": "15e725e4e66e9e3877292542cdc742e316abb53b41b8b2f1ea7b32a2fccc2db8",
+      "clock_check": "passed"
+    },
+    "printer-camera-demo (photo tear feed)": {
+      "manifest": "build/printer-bringup/tear-feed-camera/printer-camera-demo.manifest.json",
+      "build_id": "ab1198fc817c25de",
+      "elf_sha256": "d347b114917a1ac1d200c9ca02039e9987736f8648e560beac15a418798b53a0",
+      "clock_check": "passed"
+    },
+    "printer-test (photo tear feed)": {
+      "manifest": "build/printer-bringup/tear-feed-production/printer-test.manifest.json",
+      "build_id": "e2f1bfebe83437e0",
+      "elf_sha256": "e48336254c6eb5bfd31679598db2716f0f0035b9fbf289a9a56d5229f1c19b6c",
+      "clock_check": "passed"
+    },
+    "printer-camera-demo (calibrated tear position)": {
+      "manifest": "build/printer-bringup/tear-position-camera/printer-camera-demo.manifest.json",
+      "build_id": "56ac02fb3800f725",
+      "elf_sha256": "8dc0333c9f8b020103e23dfe438e9d480c3caff5392ec4392493b947455c5023",
+      "clock_check": "passed"
+    },
+    "printer-test (calibrated tear position)": {
+      "manifest": "build/printer-bringup/tear-position-production/printer-test.manifest.json",
+      "build_id": "2efd26bfd855bade",
+      "elf_sha256": "56db4589eb4853021a406985194eafc294241a19ba3d231058571c33c8eed92c",
+      "clock_check": "passed"
+    },
+    "printer-camera-demo (final tear buffer)": {
+      "manifest": "build/printer-bringup/tear-buffer-camera/printer-camera-demo.manifest.json",
+      "build_id": "9b77302680e33a5f",
+      "elf_sha256": "b519f4e05a8fed18aa3335a6970bf7a73e631ab8deb4e1d2c5ab55156c7023b1",
+      "clock_check": "passed"
+    },
+    "printer-test (final tear buffer)": {
+      "manifest": "build/printer-bringup/tear-buffer-production/printer-test.manifest.json",
+      "build_id": "5cf61193084a3fa3",
+      "elf_sha256": "bd9580d85ed3fcda6dd014d0f3c25523208df5584d650d9ba3c5aca71d3e4eea",
+      "clock_check": "passed"
+    }
+  },
+  "lengthwise_source_sha256": {
+    "src/printer.c": "d6d60593d49310c0b44909df53d79dfd528a1b0119e67a7f9d0e01ea8b65fe8e",
+    "src/printer_image.h": "2986978eb5b74beeb6ab3a1114764dc30ea4b5cf780e95704d6d4b4af9f3cef1",
+    "examples/printer-camera-demo/main.c": "698ab192469d07e692b2dcefa8c76495afb477c54897357d1b4deb03a45a96f5",
+    "tests/printer_model.c": "83e62b41e33750abcd9fb0d323292abc2aa823179beaf4bc1c00578cf21be646"
+  },
+  "final_photo_source_sha256": {
+    "src/printer.c": "f3083d7db7b54e122bccb19a719cf99c941c6efb26e1f3440b9dc9cf332f5c7d",
+    "src/printer_image.h": "5b6a062c34f02a38946ba340ab1bb2bec7a21ae2e7608bc9b4fd458916416caf",
+    "boards/silvergear-3222882/board.h": "b2939a5a7a72cdc518a1ce75246597f4555f4bd5f60449f7f06e5651ac91c72d",
+    "examples/printer-camera-demo/main.c": "94e03ad9be1191c7c29bda99a16f643891bccc85b330c745f4dfa4a6d163afdb",
+    "tests/printer_model.c": "3adcf6e59a67b4f4db3918d3cebbf78277083b1fba96108b766fae5b07835e37"
+  }
+}

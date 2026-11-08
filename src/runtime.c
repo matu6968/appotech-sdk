@@ -45,6 +45,7 @@ __attribute__((weak,noinline)) void apx_jpeg_shutdown(void) {}
 __attribute__((weak,noinline)) void apx_audio_shutdown(void) {}
 __attribute__((weak,noinline)) void apx_mic_shutdown(void) {}
 __attribute__((weak,noinline)) void apx_camera_shutdown(void) {}
+__attribute__((weak,noinline)) void apx_printer_shutdown(void) {}
 __attribute__((weak,noinline)) void apx_spi_shutdown(void) {}
 __attribute__((weak,noinline)) void apx_battery_shutdown(void) {}
 __attribute__((weak,noinline)) void apx_uart_shutdown(void) {}
@@ -258,7 +259,7 @@ _Noreturn void apx_bootrom(void) {
     apx_exception_restore(); /* the loader and the next image bring their own handlers */
     /* Let the host complete its final bulk URB before removing the pull-up. */
     apx_delay_ms(100);
-    apx_camera_shutdown();apx_mic_shutdown();apx_audio_shutdown();apx_jpeg_shutdown();
+    apx_printer_shutdown();apx_camera_shutdown();apx_mic_shutdown();apx_audio_shutdown();apx_jpeg_shutdown();
     apx_uart_shutdown();apx_spi_shutdown();apx_battery_shutdown();apx_buttons_shutdown();
     apx_display_shutdown();
     apx_sd_shutdown();

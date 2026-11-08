@@ -1,6 +1,8 @@
 #include <appotech/gpio.h>
 #include <appotech/buttons.h>
 #include <appotech/debug.h>
+#include <appotech/adc.h>
+#include "board.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -25,6 +27,15 @@ static struct apx_buttons_info state(void) {
 }
 static void drain(void) { struct apx_button_event event;while(apx_buttons_next(&event)){} }
 int main(void) {
+    /* A clear busy bit immediately after selection/start must not expose the
+     * old result. The external mux and the start bit cross clock domains. */
+    uint16_t sample=0;
+    assert(!apx_adc_acquire(APX_ADC_PRINTER));assert(!apx_adc_begin(APX_ADC_PRINTER,1));
+    assert(apx_adc_result(APX_ADC_PRINTER,&sample)==0&&!(regs[0x9170]&0x40));
+    ++now;assert(apx_adc_result(APX_ADC_PRINTER,&sample)==0&&(regs[0x9170]&0x40));
+    assert(apx_adc_result(APX_ADC_PRINTER,&sample)==0);
+    now+=4;assert(apx_adc_result(APX_ADC_PRINTER,&sample)==1&&sample==1023);
+    apx_adc_release(APX_ADC_PRINTER);
     for(unsigned i=0;i<65536;++i)regs[i]=0xa5a555aau;
     uint32_t before[65536];memcpy(before,regs,sizeof(regs));
     assert(apx_gpio_configure(5,1,APX_GPIO_OUTPUT,APX_GPIO_FLOATING,0)==-1);
@@ -60,22 +71,35 @@ int main(void) {
     memcpy(before,regs,sizeof(regs));now=0xfffff000u;
     assert(apx_led_set(1)==-1);apx_buttons_init();apx_buttons_init();run(1000);
     assert(!state().state&&state().adc==1023&&!state().adc_timeouts);
-    assert(!apx_led_set(1)&&apx_led_get()==1&&regs[0x81c4]==0x20&&!regs[0x8204]);
+#if APX_STATUS_LED_LATCH
+    /* Silvergear flash LED (PB0): push-pull output, level through the latch, no force registers. */
+    assert(!(regs[0x8044]&APX_STATUS_LED_MASK)&&!(regs[0x8004]&APX_STATUS_LED_MASK)&&regs[0x81c4]==0x20&&!regs[0x8204]);
+    assert(!apx_led_set(1)&&apx_led_get()==1&&(regs[0x8004]&APX_STATUS_LED_MASK)==APX_STATUS_LED_MASK&&regs[0x81c4]==0x20&&!regs[0x8204]);
+    assert(apx_led_set(2)==-1);assert(!apx_led_set(0)&&!apx_led_get()&&!(regs[0x8004]&APX_STATUS_LED_MASK));
+    assert(!apx_led_set(1));
+#else
+    /* The status LED is forced high or low through 81c4/8204; 0x20 is a pre-set bit inside the Action mask (PB5). */
+    assert(!apx_led_set(1)&&apx_led_get()==1&&regs[0x81c4]==(0x20u|APX_STATUS_LED_MASK)&&!regs[0x8204]);
     assert(apx_led_set(2)==-1);assert(!apx_led_set(0)&&!apx_led_get());
-    const unsigned centers[]={0,306,484,658,817};
-    for(unsigned i=0;i<5;++i) {
-        drain();adc=centers[i];run(400);assert(!state().state);run(600);assert(state().state==(1u<<i));
+    assert(regs[0x8204]==APX_STATUS_LED_MASK&&regs[0x81c4]==(0x20u&~APX_STATUS_LED_MASK));
+#endif
+    const unsigned centers[]=APX_BUTTON_CENTERS,flags[]=APX_BUTTON_FLAGS;
+    for(unsigned i=0;i<sizeof(centers)/sizeof(centers[0]);++i) {
+        drain();adc=centers[i];run(400);assert(!state().state);run(600);assert(state().state==flags[i]);
         struct apx_button_event event;assert(apx_buttons_next(&event));
-        assert(event.pressed==(1u<<i)&&!event.released&&!apx_buttons_next(&event));
-        adc=1023;run(1000);assert(!state().state);assert(apx_buttons_next(&event)&&event.released==(1u<<i));
+        assert(event.pressed==flags[i]&&!event.released&&!apx_buttons_next(&event));
+        adc=1023;run(1000);assert(!state().state);assert(apx_buttons_next(&event)&&event.released==flags[i]);
     }
+    #if !APX_HAS_PRINTER
     adc=484;regs[0x8004]|=1;run(1000);assert(state().state==(APX_BUTTON_UP|APX_BUTTON_POWER));
-    regs[0x8004]&=~1u;adc=1023;run(1000);drain();
+    regs[0x8004]&=~1u;
+#endif
+    adc=1023;run(1000);drain();
     for(unsigned i=0;i<24;++i) { adc=i%2?1023:306;run(1000); }
     assert(state().events_dropped==8);unsigned events=0;struct apx_button_event event;
     while(apx_buttons_next(&event))++events;
     assert(events==16);
-    adc=0;run(1000);assert(state().state==APX_BUTTON_SHUTTER);
+    adc=0;run(1000);assert(state().state==flags[0]);
     stuck=1;run(2000);assert(state().adc_timeouts&&state().adc==0xffff&&!state().state);
     stuck=0;adc=1023;run(1000);assert(state().adc==1023);
     uint8_t output[4096],input[4]={1};size_t size;
@@ -87,5 +111,5 @@ int main(void) {
     apx_buttons_shutdown();apx_buttons_shutdown();
     for(unsigned i=0;i<65536;++i)if(i!=0x9174)assert(regs[i]==before[i]);
     assert(apx_gpio_command(0,input,0,output,&size)==APXD_UNSUPPORTED);
-    puts("GPIO model passed: bank preservation, overrides, six buttons, debounce/wrap, queue overflow, ADC timeout, shutdown");
+    printf("GPIO model passed: %s, %zu ADC buttons, debounce, queue, timeout and pin restoration\n",APX_BOARD_ID,sizeof(centers)/sizeof(centers[0]));
 }

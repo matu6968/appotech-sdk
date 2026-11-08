@@ -5,13 +5,15 @@
 #define APX_CAMERA_WIDTH 640u
 #define APX_CAMERA_HEIGHT 480u
 #define APX_CAMERA_FRAME_BYTES (640u*480u*3u/2u)
+enum apx_camera_id { APX_CAMERA_REAR=0,APX_CAMERA_FRONT=1 };
 enum apx_camera_state { APX_CAMERA_OFF,APX_CAMERA_READY,APX_CAMERA_CAPTURING,APX_CAMERA_DONE,APX_CAMERA_ERROR };
 enum apx_camera_error { APX_CAMERA_OK,APX_CAMERA_INVALID,APX_CAMERA_RANGE,APX_CAMERA_BUSY,APX_CAMERA_TIMEOUT,APX_CAMERA_HARDWARE,APX_CAMERA_UNSUPPORTED,APX_CAMERA_NACK };
 struct apx_camera_info {
  uint32_t state,error,sensor_id,width,height,pitch,buffer,bytes,status,ticks,completed,timeouts,i2c_errors;
- uint32_t scaled;
+ uint32_t scaled,selected,count;
+ uint32_t native_width,native_height;
 };
-/* Action Vision board: independent I2C, sensor clock/reset and DVP receive DMA.
+/* Board-selected independent I2C, sensor clock/reset and DVP receive DMA.
  * A destination owns complete 32-byte aligned DDR cache lines until DONE/ERROR.
  * Native capture produces 640x480 NV21. Scaled capture uses the camera scaler
  * and one-shot output DMA, retaining the running sensor between frames.
@@ -20,6 +22,9 @@ struct apx_camera_info {
  * must cover pitch*height*3/2. Do not reuse an LCD-owned destination.
  * No vendor firmware callbacks, heap allocation or interrupts. */
 int apx_camera_init(void);
+unsigned apx_camera_count(void);
+/* Stops the previous idle sensor; rejects selection during capture or printing. */
+int apx_camera_select(enum apx_camera_id id);
 int apx_camera_capture_start(void *frame,size_t capacity);
 int apx_camera_scaled_start(void *frame,size_t capacity,unsigned width,unsigned height,unsigned pitch);
 void apx_camera_poll(void);

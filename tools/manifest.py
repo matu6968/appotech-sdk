@@ -8,6 +8,7 @@ from pathlib import Path
 from elftools.elf.elffile import ELFFile
 p=argparse.ArgumentParser()
 p.add_argument('elf',type=Path)
+p.add_argument('--board',choices=('action-vision','silvergear-3222882'),default='action-vision')
 p.add_argument('--build-id',required=True)
 p.add_argument('--vid',type=lambda s:int(s,0),default=0x1908)
 p.add_argument('--pid',type=lambda s:int(s,0),default=0x3319)
@@ -69,6 +70,7 @@ with args.elf.open('rb') as stream:
     symbols=elf.get_section_by_name('.symtab')
     spi_entry=symbols.get_symbol_by_name('apx_spi_entry')
     manifest={'spi_entry':spi_entry[0]['st_value'] if spi_entry else None,'schema_version':1,'entry':elf.header.e_entry,'build_id':args.build_id,
+              'board':args.board,'capabilities':{'cameras':2 if args.board=='silvergear-3222882' else 1,'printer':args.board=='silvergear-3222882'},
               'elf_sha256':hashlib.sha256(args.elf.read_bytes()).hexdigest(),
               'reservations':reservations,
               'segments':segments,'clock_policy':'sdk-pll1-144' if args.cpu_mhz==144 else 'inherit-loader-96',
@@ -106,7 +108,7 @@ with args.elf.open('rb') as stream:
         camera_tables=elf.get_section_by_name('.camera_tables')
         manifest['camera_code']={'address':camera_code['sh_addr'],'bytes':camera_code['sh_size'],
             'table_bytes':camera_tables['sh_size'] if camera_tables else 0,
-            'sensor_init_sha256':hashlib.sha256((sdk/'src/camera_sensor.inc').read_bytes()).hexdigest()}
+            'sensor_init_sha256':hashlib.sha256((sdk/('boards/silvergear-3222882/sensors.inc' if args.board=='silvergear-3222882' else 'src/camera_sensor.inc')).read_bytes()).hexdigest()}
     if lvgl_code and lvgl_code['sh_size']:
         manifest['lvgl']={'address':lvgl_code['sh_addr'],'bytes':lvgl_code['sh_size'],
             'table_address':lvgl_tables['sh_addr'] if lvgl_tables else 0,

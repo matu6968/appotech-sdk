@@ -1,0 +1,210 @@
+{
+  "date": "2026-11-07",
+  "execution": "RAM only; no stock flash writes",
+  "production_build_id": "bf7db22520953000",
+  "camera_build_id": "1d2432c6eeb225c1",
+  "observation_source": "owner replies in task conversation, separate from SDK readback",
+  "cold_launches": [
+    {
+      "run": "../printer-bringup-cold-20261107-01/result.json",
+      "owner_power_cycle": "Powered off; USB unplugged, then connected in forced BootROM",
+      "paper_result": "Yes, blank section then three recognizable bars"
+    },
+    {
+      "run": "../printer-bringup-cold-20261107-02/result.json",
+      "owner_power_cycle": "Powered off; USB unplugged, then connected in forced BootROM",
+      "paper_result": "Yes, blank section then three recognizable bars"
+    },
+    {
+      "run": "../printer-bringup-cold-20261107-03/result.json",
+      "owner_power_cycle": "Powered off; USB unplugged, then connected in forced BootROM",
+      "paper_result": "Yes, blank section then three recognizable bars"
+    }
+  ],
+  "button_calibration": {
+    "source": "owner pressed physical PRINT, SHUTTER, EXIT in order, then MODE; camera-02 SDK log seconds220..309",
+    "physical_adc": {
+      "PRINT": 134,
+      "SHUTTER": 512,
+      "EXIT": 413,
+      "MODE": 614
+    },
+    "previous_decoding": {
+      "PRINT": "SHUTTER",
+      "SHUTTER": "MODE",
+      "EXIT": "PRINT",
+      "MODE": "EXIT"
+    },
+    "firmware_change": "Silvergear APX_BUTTON_FLAGS corrected; ADC centers unchanged"
+  },
+  "corrected_builds": {
+    "printer-test": "ecca2c1489cb2d45",
+    "printer-camera-demo": "69e6f7dd52f30fed",
+    "change_since_three_cold_launches": "Only the owner-verified button-role table in the Silvergear board header; printer.c unchanged."
+  },
+  "camera_smoke": {
+    "run": "../printer-bringup-camera-20261107-03/result.json",
+    "build_id": "69e6f7dd52f30fed",
+    "owner_result": "A recognizable camera image",
+    "input": "physical PRINT captured a real frame, then physical PRINT printed it",
+    "capture_info_before_print": {
+      "sensor_id": 57,
+      "native_width": 640,
+      "native_height": 480,
+      "test_pattern": false,
+      "guard_ok": true,
+      "preview_guard_ok": true
+    },
+    "completed_readback": {
+      "present": true,
+      "state": 0,
+      "error": 0,
+      "row": 288,
+      "rows": 288,
+      "steps": 576,
+      "temperature_adc": 760,
+      "temperature_index": 26,
+      "paper_signal": 0,
+      "sequence": 1,
+      "completed": 1,
+      "battery_mv": 4094,
+      "width": 384,
+      "paper_valid": 1,
+      "temperature_valid": 1,
+      "temperature_limit": 65,
+      "heat_pulses": 18432,
+      "max_heat_count": 397,
+      "head_on": 0,
+      "motor_on": 0,
+      "power_on": 0,
+      "cancelled": 0,
+      "timer_hz": 1124836,
+      "timer_valid": 1,
+      "adc_channel": 1,
+      "sample_adc": 760,
+      "energy_percent": 100
+    },
+    "bootrom_recovery_verified": true
+  },
+  "lengthwise_photo": {
+    "run": "../printer-bringup-lengthwise-20261107-01/result.json",
+    "build_id": "b1ebbb5cd8912000",
+    "raster_width": 384,
+    "raster_height": 512,
+    "rotation": "90 degrees clockwise before scaling and dithering",
+    "owner_result": "Yes\u2014the lengthwise layout is correct",
+    "source": "owner clarification and hardware confirmation in task conversation",
+    "completed_readback": {
+      "present": true,
+      "state": 0,
+      "error": 0,
+      "row": 512,
+      "rows": 512,
+      "steps": 1024,
+      "temperature_adc": 714,
+      "temperature_index": 31,
+      "paper_signal": 0,
+      "sequence": 1,
+      "completed": 1,
+      "battery_mv": 3976,
+      "width": 384,
+      "paper_valid": 1,
+      "temperature_valid": 1,
+      "temperature_limit": 65,
+      "heat_pulses": 32768,
+      "max_heat_count": 559,
+      "head_on": 0,
+      "motor_on": 0,
+      "power_on": 0,
+      "cancelled": 0,
+      "timer_hz": 1119672,
+      "timer_valid": 1,
+      "adc_channel": 1,
+      "sample_adc": 714,
+      "energy_percent": 100
+    },
+    "bootrom_recovery_verified": true
+  },
+  "tear_feed": {
+    "stock_evidence": {
+      "wrapper_count_pc": "020527f8",
+      "double_count_pc": "0205c494..4a0",
+      "motor_loop_pc": "0205c4c4..500",
+      "normal_forward_steps": 160
+    },
+    "runs": [
+      {
+        "run": "../printer-bringup-tear-feed-20261107-01/result.json",
+        "result": "BootROM disappeared before any upload; no diagnostic ran"
+      },
+      {
+        "run": "../printer-bringup-tear-feed-20261107-02/result.json",
+        "build_id": "ab1198fc817c25de",
+        "finishing_steps": 160,
+        "completed_rows": 512,
+        "completed_total_steps": 1184,
+        "heat_pulses": 32768,
+        "owner_result": "It needs a little more paper"
+      }
+    ],
+    "calibration": {
+      "owner_result": "It needs about6mm (three presses)",
+      "additional_manual_jobs": 3,
+      "steps_per_job": 32,
+      "additional_steps": 96,
+      "heat_pulses_before_and_after": 32768,
+      "final_board_steps": 320,
+      "basis": "stock-derived160 + owner-calibrated96",
+      "requested_additional_buffer_steps": 64,
+      "requested_additional_buffer_mm": 4
+    },
+    "automatic_256_trial": {
+      "run": "../printer-bringup-tear-position-20261107-01/result.json",
+      "build_id": "56ac02fb3800f725",
+      "completed_photos": 2,
+      "steps_per_photo": 1280,
+      "rows_per_photo": 512,
+      "owner_result": "Requests about another4mm/two32-step manual feeds as tearing buffer",
+      "bootrom_recovery_verified": true
+    },
+    "final_build_id": "9b77302680e33a5f",
+    "final_320_confirmation": {
+      "run": "../printer-bringup-tear-buffer-20261107-02/result.json",
+      "build_id": "9b77302680e33a5f",
+      "owner_result": "Yes\u2014clean tear in the right spot, without extra manual feeds",
+      "completed_readback": {
+        "present": true,
+        "state": 4,
+        "error": 0,
+        "row": 512,
+        "rows": 512,
+        "steps": 1344,
+        "temperature_adc": 646,
+        "temperature_index": 39,
+        "paper_signal": 0,
+        "sequence": 1,
+        "completed": 1,
+        "battery_mv": 3956,
+        "width": 384,
+        "paper_valid": 1,
+        "temperature_valid": 1,
+        "temperature_limit": 65,
+        "heat_pulses": 32768,
+        "max_heat_count": 576,
+        "head_on": 0,
+        "motor_on": 0,
+        "power_on": 0,
+        "cancelled": 0,
+        "timer_hz": 1118878,
+        "timer_valid": 1,
+        "adc_channel": 1,
+        "sample_adc": 646,
+        "energy_percent": 100
+      },
+      "battery_adc_timeouts": 0,
+      "camera_preview_resumed": true,
+      "camera_guards_ok": true,
+      "end_state": "Idle host observer detached; RAM demo remains available"
+    }
+  }
+}

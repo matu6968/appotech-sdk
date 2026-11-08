@@ -170,7 +170,9 @@ int apx_sd_read(uint32_t sector,void *buffer,unsigned count) {
         uint32_t status=apx_spr_read(CONTROL);
         acknowledge(DATA_DONE);
         apx_spr_write(DMA_LENGTH,0);
-        if(!result&&(status&0x00600000u)!=0x00400000u) {
+        /* Only bit 16 is a receive error flag. Bits 22:21 vary from run to run with identical,
+         * correct data (seen as 00, 01 and 10 on Action and Silvergear hardware), so they are not checked. */
+        if(!result&&(status&(1u<<16))) {
             result=APX_SD_CARD_ERROR;++card.errors;
         }
         if(result) {

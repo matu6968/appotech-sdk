@@ -10,8 +10,8 @@ SECTIONS {
  .lvgl_tables : ALIGN(4) { *lv_*.o(.rodata .rodata.*) *img_*.o(.rodata .rodata.*) } > CODEC_RAM
  .peripheral_code : ALIGN(4) { *uart.o(.text .text.*) *adc.o(.text .text.*) *battery.o(.text .text.*) *spi.o(.text .text.*) } > EXTRA_RAM
  .peripheral_tables : ALIGN(4) { *uart.o(.rodata .rodata.*) *adc.o(.rodata .rodata.*) *battery.o(.rodata .rodata.*) *spi.o(.rodata .rodata.*) __peripheral_code_end = .; } > EXTRA_RAM
- .camera_code : ALIGN(4) { *camera.o(.text .text.*) *camera_files.o(.text .text.*) } > EXTRA_RAM
- .camera_tables : ALIGN(4) { *camera.o(.rodata .rodata.*) *camera_files.o(.rodata .rodata.*) __camera_code_end = .; } > EXTRA_RAM
+ .camera_code : ALIGN(4) { *printer.o(.text .text.*) *printer_render.o(.text .text.*) *photo_prepare.o(.text .text.*) *printer_reference.o(.text .text.*) *camera.o(.text .text.*) *camera_files.o(.text .text.*) } > EXTRA_RAM
+ .camera_tables : ALIGN(4) { *printer.o(.rodata .rodata.*) *printer_render.o(.rodata .rodata.*) *photo_prepare.o(.rodata .rodata.*) *camera.o(.rodata .rodata.*) *camera_files.o(.rodata .rodata.*) __camera_code_end = .; } > EXTRA_RAM
  .audio_code : ALIGN(4) {
     *audio.o(.text .text.*) *audio_files.o(.text .text.*) *microphone.o(.text .text.*) *microphone_files.o(.text .text.*)
  } > EXTRA_RAM

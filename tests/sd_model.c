@@ -70,7 +70,9 @@ static void execute(void) {
         unsigned bad=crc_error||read_crc_once;
         if(read_crc_once)--read_crc_once;
         if(bad&&replace_on_error){++cid_generation;replace_on_error=0;}
-        registers[0x9880]=(registers[0x9880]&~0x600000u)|(bad?0x200000:0x400000);
+        {static const unsigned noise[4]={0x400000,0x000000,0x200000,0x600000};static unsigned n;
+         /* Good reads report varying bits 22:21 (hardware noise); only bit 16 flags an error. */
+         registers[0x9880]=(registers[0x9880]&~0x710000u)|(bad?0x10000u:noise[n++&3]);}
         break;
     }
     case 24:

@@ -20,6 +20,18 @@
 #define LV_FONT_MONTSERRAT_26 1
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 #define LV_BUILD_DEMOS 1
+/* The benchmark demo labels each scene with FPS, CPU and refresh time only when LVGL's performance monitor is built
+ * (it otherwise prints "LV_USE_PERF_MONITOR is not enabled"). The Makefile turns this on for LVGL_DEMO=benchmark. */
+#ifndef APX_LVGL_PERF
+#define APX_LVGL_PERF 0
+#endif
+#if APX_LVGL_PERF
+#define LV_USE_SYSMON 1
+#define LV_USE_PERF_MONITOR 1
+/* LVGL enables argument checking by default; the benchmark's summary warns that it can slow the widgets scene. The asserts above
+ * stay on (they only fire on out-of-memory / NULL). */
+#define LV_USE_CHECK_ARG 0
+#endif
 #define LV_USE_DEMO_WIDGETS 1
 #define LV_USE_DEMO_BENCHMARK 1
 

@@ -1,0 +1,24 @@
+{
+  "format": "packed MSB first, 1=black",
+  "energy_percent": 100,
+  "expected": "blank control; three bars of increasing start row (24,16,8 rows tall)",
+  "maximum_black_pixels_per_row": 24,
+  "rasters": [
+    {
+      "file": "blank-384x32.bin",
+      "width": 384,
+      "height": 32,
+      "stride": 48,
+      "black_pixels": 0,
+      "sha256": "80422bc3d307b4a25bdafcc84ac7fb01cb55a09810e8b0f37bb12e0edb5c48ca"
+    },
+    {
+      "file": "sparse-384x32.bin",
+      "width": 384,
+      "height": 32,
+      "stride": 48,
+      "black_pixels": 384,
+      "sha256": "7b27d80d226eb96c814075c845a498a32dc1d61d87e947eaca95b8351134bfca"
+    }
+  ]
+}

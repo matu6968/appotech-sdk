@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include "../src/battery_internal.h"
 static uint32_t regs[65536],now,adc_done,calibration=803;
 static unsigned channel,adc_stuck,spi_stuck,bat_adc=750,ref_adc=300,button_adc=1023;
 static unsigned stale_model,fresh_conversions,last_result,conversions;
@@ -16,7 +17,7 @@ static unsigned position,selected,spi_address,write_count,bytes_tx;
 static uint8_t spi_byte(uint8_t value,unsigned receive){
  assert(selected);++bytes_tx;
  if(!position++){command=value;spi_address=write_count=0;if(command==6)status_reg|=2;return 0;}
- if(command==0x9f){static const uint8_t id[]={0x5e,0x40,0x15};assert(receive&&position<=4);return id[position-2];}
+ if(command==0x9f){static const uint8_t id[]={APX_SPI_JEDEC>>16,(APX_SPI_JEDEC>>8)&255,APX_SPI_JEDEC&255};assert(receive&&position<=4);return id[position-2];}
  if(command==5)return status_reg;
  if(command==3||command==2||command==0x20){
   if(position<=4){spi_address=(spi_address<<8)|value;return 0;}
@@ -28,7 +29,7 @@ static uint8_t spi_byte(uint8_t value,unsigned receive){
 }
 uint32_t apx_ticks(void){return now;}
 void apx_maintenance(void){now+=4;}
-uint32_t apx_mmio_read32(uintptr_t address){assert(address==0x1fec);return calibration;}
+uint32_t apx_mmio_read32(uintptr_t address){assert(address==APX_BATTERY_CALIBRATION_ADDRESS);return calibration;}
 uint32_t apx_spr_read(uint32_t r){
  if(r==0x9170&&(regs[r]&0x40)&&!adc_stuck&&(int32_t)(now-adc_done)>=0)regs[r]&=~0x40u;
  if(r==0x9178){
@@ -86,11 +87,23 @@ int main(void){
  stale_model=1;bat_adc=750;ref_adc=300;run(65536);
  assert(battery().valid&&battery().millivolts==4034&&battery().adc_battery==750&&battery().adc_reference==300);
  stale_model=0;
- apx_buttons_shutdown();run(32768);assert(battery().valid);apx_battery_shutdown();assert(regs[0x8868]==0x044d582e); /* reference bit restored */
+ apx_buttons_shutdown();run(32768);assert(battery().valid);
+ /* Printer handoff: cancel a pending conversion before blocking for 20 ms.
+  * Retain the original sample timestamp, resume fresh conversions and never
+  * count the deliberately discarded pair as an ADC timeout. */
+ unsigned limit=10000;while(!(regs[0x9170]&0x40)&&--limit){++now;apx_battery_poll();}
+ assert(limit);struct apx_battery_info before=battery();
+ apx_battery_defer_conversion();assert(!(regs[0x9170]&0x40));
+ assert(battery().valid&&battery().last_ticks==before.last_ticks);
+ now+=655;run(32768);
+ assert(battery().valid&&battery().updates>before.updates&&battery().timeouts==before.timeouts);
+ apx_battery_defer_conversion();now+=4u*32768;apx_battery_poll();assert(!battery().valid);
+ run(32768);assert(battery().valid);
+ apx_battery_shutdown();assert(regs[0x8868]==0x044d582e); /* reference bit restored */
  assert(regs[0x9170]==0x13&&(regs[0x8840]&(1u<<29)));
  assert(apx_adc_begin(APX_ADC_BUTTONS,3)==-1);
  for(unsigned i=0;i<sizeof(flash);++i)flash[i]=(i*37u+(i>>8))&255;
- assert(!apx_spi_init());struct apx_spi_info info;apx_spi_get_info(&info);assert(info.jedec==0x5e4015);
+ assert(!apx_spi_init());struct apx_spi_info info;apx_spi_get_info(&info);assert(info.jedec==APX_SPI_JEDEC);
  uint8_t out[8192];const unsigned sizes[]={0,1,7,15,16,31,32,33,63,64,65,255,256,511,512,513,4095,4096,4097,8192};
  for(unsigned i=0;i<sizeof(sizes)/sizeof(*sizes);++i){assert(!apx_spi_read(17,out,sizes[i]));assert(!memcmp(out,flash+17,sizes[i]));}
  assert(!apx_spi_read(APX_SPI_CAPACITY,0,0));assert(apx_spi_read(APX_SPI_CAPACITY,out,1)==APX_SPI_INVALID);

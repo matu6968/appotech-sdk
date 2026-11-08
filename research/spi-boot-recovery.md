@@ -2,6 +2,16 @@
 
 > Flash layout, free space for applications and ways to get more: see [`spi-flash-map.md`](spi-flash-map.md).
 
+The SRAM flasher now returns raw JEDEC IDs and bounds reads using capacity code
+`0x15` (2 MiB) or `0x16` (4 MiB), checked again for each flash access. Erase/program
+still require exactly `5e4015`. The sibling apxtool adds full-chip dump metadata
+and `rom-rescue verify`; see its [Silvergear printer-camera procedure](../../apxtool/docs/silvergear-printer-backup.md).
+The printer camera was verified as `944016`, 4 MiB. Its initial loader state left
+SPI disabled, so after user approval the capture used `--spi-init sdk`, with no
+PM sequence applied. A full backup matched an independent byte-for-byte reread;
+the user confirmed stock operation afterward. Use `dump --verify` for a
+continuous session; the loader can disconnect after host traffic stops.
+
 State on 2026-10-16: the SDK SPI image `bc2086e3…` (build `860fcba4ab0e43a5`)
 verified by full readback but the camera does not start on a real power cycle.
 See `spi-boot/boot-attempt.json`. Restore image:

@@ -70,6 +70,10 @@ register has not been established. Structural validation and a two-second
 hardware timeout are provided; arbitrary corrupted entropy is not a trusted
 DMA sandbox. No full-resolution decode API is claimed in this milestone.
 
+2026-11-07: `apx_jpeg_decode_start_large()` raises the output limit to 640x480 for the SD print
+examples (the printer-sd-compare report, archived in `cleanup-archive-20261108/dated-bringup-reports-20261102-20261108.tar.gz`). The pitch field written to
+`c0c0` exceeds 255 there; not verified on hardware.
+
 Preview reads bounded FatFs chunks, closes the input, preserves aspect ratio,
 centers the result and uses one NV21 compositor/LCD transfer. The framebuffer
 remains owned until display completion. 4:2:2 input also produces NV21; the

@@ -1,6 +1,28 @@
 #ifndef APPOTECH_BOARD_H
 #define APPOTECH_BOARD_H
+#define APX_BOARD_SILVERGEAR 0
+#define APX_BOARD_ID "action-vision"
+#define APX_CAMERA_COUNT 1u
+#define APX_HAS_PRINTER 0
+#define APX_DISPLAY_NATIVE_WIDTH 176u
+#define APX_DISPLAY_NATIVE_HEIGHT 220u
+#define APX_DISPLAY_WIDTH 220u
+#define APX_DISPLAY_HEIGHT 176u
+#define APX_BUTTON_INPUT_MASK 3u
+#define APX_BUTTON_TOLERANCE 29u
+#define APX_BUTTON_CENTERS {0,306,484,658,817}
+#define APX_BUTTON_FLAGS {APX_BUTTON_SHUTTER,APX_BUTTON_DOWN,APX_BUTTON_UP,APX_BUTTON_LEFT,APX_BUTTON_RIGHT}
 #define APX_BOARD_NAME "action-vision-jt5295"
+/* SPI NOR: 5e4015, 2 MiB. */
+#define APX_SPI_JEDEC 0x5e4015u
+#define APX_SPI_FLASH_BYTES 0x200000u
+/* The vendor bootstrap saves the ROM stack page here (SPI 0x540: movhi r4,0 / ori r4,r4,0x1e6c) and restores it on return. */
+#define APX_SPI_BOOT_SAVED_STACK 0x1e6cu
+/* Flight-recorder sectors (APX_SPI_TRACE / APX_LAUNCH_TRACE_MODE builds): the last two sectors of the chip. */
+#define APX_SPI_TRACE_SECTOR 0x001ff000u
+#define APX_SPI_TRACE_LAUNCH_SECTOR 0x001fe000u
+#define APX_BATTERY_CALIBRATION_ADDRESS 0x1fecu
+#define APX_BATTERY_OFFSET_MV 20u
 #define APX_SD_CLOCK_SOURCE_HZ 144000000u
 #define APX_SD_CLOCK_HZ 24000000u
 #ifndef APX_CPU_MHZ

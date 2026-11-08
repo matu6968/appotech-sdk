@@ -31,7 +31,7 @@ def main():
           (end,TABLE,'FREE for application data'),
           (TABLE,TABLE+0x1000,'overlay table (erased if the image has no overlay)'),
           (0x1fd000,0x1fe000,'unused'),
-          (0x1fe000,0x1ff000,'trace log of USB-launched runs (APX_SPI_TRACE builds only)'),
+          (0x1fe000,0x1ff000,'trace log of USB-launched runs (APX_SPI_TRACE builds only; Silvergear uses 0x3fd000/0x3fe000)'),
           (0x1ff000,0x200000,'trace log of SPI boots (APX_SPI_TRACE builds only)')]
     for lo,hi,label in rows:print(f'{lo:#08x}-{hi:#08x} {(hi-lo)/1024:8.1f} KiB  {label}')
     free=data[end:TABLE]

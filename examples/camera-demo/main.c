@@ -1,4 +1,8 @@
 #include <appotech/soc.h>
+#include "board.h"
+#if APX_BOARD_SILVERGEAR
+#error "camera-demo drives the Action camera's sensor, JPEG pipeline and display. Use EXAMPLE=printer-camera-demo on Silvergear."
+#endif
 #include <appotech/usb.h>
 #include <appotech/debug.h>
 #include <appotech/display.h>

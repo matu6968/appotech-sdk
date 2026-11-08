@@ -4,3 +4,5 @@
 /toolchain/downloads/
 __pycache__/
 .pytest_cache/
+
+/research/silvergear/*.disasm

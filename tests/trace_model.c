@@ -5,7 +5,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
-#define CAPACITY 0x200000u
+#ifndef APX_SPI_FLASH_BYTES /* no board header: the Action camera's chip */
+#define APX_SPI_FLASH_BYTES 0x200000u
+#define APX_SPI_JEDEC 0x5e4015u
+#endif
+#define CAPACITY APX_SPI_FLASH_BYTES
 #define SECTOR APX_TRACE_SECTOR
 static uint32_t regs[65536];
 uint32_t trace_test_ring[64];
@@ -14,7 +18,7 @@ static char uart[4096];
 static unsigned uart_length;
 static unsigned selected,position,spi_address,wel,busy_reads,stuck_busy,pending_erase,pending_program;
 static unsigned stray_writes,erases,programs,gated,setups;
-static uint8_t command,jedec[3]={0x5e,0x40,0x15};
+static uint8_t command,jedec[3]={APX_SPI_JEDEC>>16,(APX_SPI_JEDEC>>8)&255,APX_SPI_JEDEC&255};
 static uint8_t spi_byte(uint8_t value,unsigned receive){
     assert(selected);
     if(!position++){command=value;spi_address=0;pending_erase=pending_program=0;if(command==6)wel=1;return 0;}
@@ -26,7 +30,7 @@ static uint8_t spi_byte(uint8_t value,unsigned receive){
         assert(spi_address<CAPACITY);
         if(command==3){assert(receive);return flash[spi_address++];}
         assert(wel);
-        if(spi_address<0x1fe000)++stray_writes;
+        if(spi_address<APX_TRACE_LAUNCH_SECTOR||spi_address>=APX_TRACE_SECTOR+4096)++stray_writes; /* only the two trace sectors */
         flash[spi_address]&=value;
         /* Page wrap, as on the real chip. */
         spi_address=(spi_address&~255u)|((spi_address+1)&255u);
@@ -40,7 +44,7 @@ void apx_spr_write(uint32_t r,uint32_t value){
     if(r==0x9000&&!(old&0x4000)&&(value&0x4000)&&selected){
         if(pending_erase&&position==4){
             assert(wel);++erases;
-            if(spi_address!=SECTOR&&spi_address!=0x1fe000)++stray_writes;
+            if(spi_address!=SECTOR&&spi_address!=APX_TRACE_LAUNCH_SECTOR)++stray_writes;
             else memset(flash+spi_address,0xff,4096);
             wel=0;busy_reads=2;
         }
@@ -110,7 +114,7 @@ int main(void){
     reset_chip();jedec[0]=0x00;
     apx_trace_begin();apx_trace(1,2);apx_trace_regs(0);
     assert(!erases&&!programs&&!uart_length&&outside_unchanged());
-    jedec[0]=0x5e;
+    jedec[0]=APX_SPI_JEDEC>>16;
 
     /* A chip that never leaves busy cannot hang the boot and leaves tracing off. */
     reset_chip();stuck_busy=1;
@@ -124,10 +128,10 @@ int main(void){
     reset_chip();
     apx_trace_begin();apx_trace(0x21,1);
     uint8_t first[4096];memcpy(first,flash+SECTOR,4096);
-    memset(flash+0x1fe000,0xff,4096);
+    memset(flash+APX_TRACE_LAUNCH_SECTOR,0xff,4096);
     apx_trace_begin_at(APX_TRACE_LAUNCH_SECTOR);apx_trace(0x44,0x55);
-    assert(!memcmp(first,flash+SECTOR,4096)&&flash[0x1fe000+APX_TRACE_CRUMBS_OFFSET+4*0x44]==0x44&&!stray_writes);
-    apx_trace_begin();assert(flash[SECTOR+APX_TRACE_CRUMBS_OFFSET+4*0x21]==0xff&&flash[0x1fe000+APX_TRACE_CRUMBS_OFFSET+4*0x44]==0x44);
+    assert(!memcmp(first,flash+SECTOR,4096)&&flash[APX_TRACE_LAUNCH_SECTOR+APX_TRACE_CRUMBS_OFFSET+4*0x44]==0x44&&!stray_writes);
+    apx_trace_begin();assert(flash[SECTOR+APX_TRACE_CRUMBS_OFFSET+4*0x21]==0xff&&flash[APX_TRACE_LAUNCH_SECTOR+APX_TRACE_CRUMBS_OFFSET+4*0x44]==0x44);
     /* Modes: UART-only never touches the flash bus; flash-only prints nothing; off records nothing. */
     reset_chip();
     apx_trace_begin_mode(APX_TRACE_LAUNCH_SECTOR,2);
@@ -137,7 +141,7 @@ int main(void){
     reset_chip();
     apx_trace_begin_mode(APX_TRACE_LAUNCH_SECTOR,1);
     u0=uart_length;apx_trace(0x11,7);
-    assert(uart_length==u0&&programs>1&&flash[0x1fe000+APX_TRACE_CRUMBS_OFFSET+4*0x11]==0x11);
+    assert(uart_length==u0&&programs>1&&flash[APX_TRACE_LAUNCH_SECTOR+APX_TRACE_CRUMBS_OFFSET+4*0x11]==0x11);
     apx_trace_off();p0=programs;u0=uart_length;apx_trace(0x12,1);
     assert(programs==p0&&uart_length==u0&&!apx_trace_active());
     /* SRAM ring: a "crashed" run leaves crumbs in on-chip SRAM; the next boot imports them into its log. */

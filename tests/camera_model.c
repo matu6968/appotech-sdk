@@ -3,26 +3,42 @@
 #include <appotech/soc.h>
 #include <assert.h>
 #include <stdio.h>
+#include "board.h"
+static unsigned printer_busy,pdn=0xc00,pdn_both;
+int apx_printer_busy(void){return printer_busy;}
 void apx_exception_expect_reset(void) {}
 static uint32_t regs[65536],ticks;
-static unsigned nack,stuck,cleaned,invalidated,overlap,halts;
+static unsigned nack,stuck,cleaned,invalidated,overlap,halts,first_byte,bus_address,bus_index,sensor_reg;
+static uint8_t sensor_values[256];
 uint32_t apx_ticks(void) {return ticks++;}
 void apx_delay_ms(uint32_t ms) {ticks+=ms*33;}
 uint32_t apx_spr_read(uint32_t reg) {return regs[reg];}
 void apx_spr_write(uint32_t reg,uint32_t value) {
  if(reg==0xb000&&!(value&1))++halts;
  if(reg==0x90a0){
+  if(value==0x80){first_byte=1;bus_index=0;}
+  if(value&0x10) {
+   if(bus_index==1)sensor_reg=regs[0x909c]&255;
+   if(bus_index==2&&!(bus_address&1))sensor_values[sensor_reg]=regs[0x909c]&255;
+   ++bus_index;
+  }
+  if((value&0x10)&&first_byte){bus_address=regs[0x909c];first_byte=0;}
+  unsigned wrong_address=0;
+#if APX_BOARD_SILVERGEAR
+  unsigned expected=regs[0x9098]==0xa6?0xdc:0x42;
+  wrong_address=(bus_address&~1u)!=expected;
+#endif
   if(value&1)regs[0x90a4]&=~1u;
-  else if(!stuck&&(value&0x78))regs[0x90a4]=1|(nack?128:0);
+  else if(!stuck&&(value&0x78))regs[0x90a4]=1|((nack||wrong_address)?128:0);
   regs[reg]=0;return;
  }
  if(reg==0xb00c){regs[reg]&=~value;return;}
  regs[reg]=value;
 }
 int apx_gpio_configure(unsigned a,uint32_t b,enum apx_gpio_direction c,enum apx_gpio_pull d,uint32_t e) {
- (void)a;(void)b;(void)c;(void)d;(void)e;return 0;
+ (void)c;(void)d;if(a==4){pdn=(pdn&~b)|(e&b);pdn_both+=pdn==0xc00;}return 0;
 }
-int apx_gpio_write(unsigned a,uint32_t b,uint32_t c) {(void)a;(void)b;(void)c;return 0;}
+int apx_gpio_write(unsigned a,uint32_t b,uint32_t c) {if(a==4)pdn=(pdn&~b)|(c&b);return 0;}
 int apx_audio_buffer_busy(const void *p,size_t n) {(void)p;(void)n;return overlap;}
 int apx_mic_buffer_busy(const void *p,size_t n) {(void)p;(void)n;return 0;}
 int apx_dma_clean(const void *p,size_t n) {(void)p;(void)n;++cleaned;return 0;}
@@ -71,6 +87,23 @@ int main(void) {
  assert(!apx_camera_capture_start(frame,460800)&&!regs[0xb004]&&!regs[0xb060]&&regs[0xb018]==0x80000);
  apx_camera_get_info(&i);assert(!i.scaled&&i.width==640&&i.height==480&&i.pitch==640);
  apx_camera_shutdown();assert(regs[0x884c]==0x8b123456&&regs[0x8348]==0x12345678);
+ #if APX_BOARD_SILVERGEAR
+ for(unsigned n=0;n<10;++n) {
+  assert(!apx_camera_select(n&1));apx_camera_get_info(&i);
+  assert(i.selected==(n&1)&&i.count==2&&i.sensor_id==0x39);
+  assert(pdn==((n&1)?0x800u:0x400u)&&pdn_both>=n+1);
+  assert(sensor_values[0x31]==((n&1)?2:0));
+  assert(!apx_camera_capture_start(frame,460800));
+  assert(apx_camera_select((n&1)^1)==APX_CAMERA_BUSY);
+  apx_camera_stop();apx_camera_shutdown();
+ }
+ regs[0x9098]=0xa6;assert(!apx_camera_select(APX_CAMERA_FRONT));apx_camera_get_info(&i);
+ assert(i.sensor_id==0xa6&&i.native_width==640&&i.native_height==480&&bus_address==0xdc);
+ assert(regs[0x9090]==143&&pdn==0x800&&sensor_values[0x4a]==12);
+ apx_camera_shutdown();regs[0x9098]=0x39;
+ printer_busy=1;assert(apx_camera_init()==APX_CAMERA_BUSY);printer_busy=0;
+ assert(apx_camera_select(2)==APX_CAMERA_UNSUPPORTED);
+#endif
  nack=1;assert(apx_camera_init()==APX_CAMERA_NACK);apx_camera_shutdown();nack=0;
  stuck=1;assert(apx_camera_init()==APX_CAMERA_TIMEOUT);apx_camera_shutdown();
  puts("Camera model: native/scaled DMA bounds, events, one-shot handoff, rearm, deadlines, NACK and clock restoration passed");

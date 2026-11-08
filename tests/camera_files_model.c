@@ -14,19 +14,27 @@ static uint8_t *jpeg_buffer;
 static unsigned complete_camera,complete_jpeg,display_count,file_open,file_exists,written,sync_error;
 static uint32_t ticks;
 static int init_result;
-static unsigned pattern_frames;
+static unsigned pattern_frames,overlay_calls;
 static enum apx_display_state display_state=APX_DISPLAY_READY;
 static const uint8_t *display_buffer;
 static uint8_t out[4096];static size_t out_bytes;
+#define PW APX_DISPLAY_WIDTH
+#define PH APX_DISPLAY_HEIGHT
+#define PP ((PW+31u)&~31u)
+#define PB (PP*PH*3u/2u)
+void apx_camera_preview_overlay(uint8_t *y,uint8_t *vu,unsigned pitch){(void)y;(void)vu;assert(pitch==PP);++overlay_calls;}
 uint32_t apx_ticks(void) {return ticks+=100;}
 void apx_maintenance(void) {}
 void apx_usb_poll(void) {}
 void apx_buttons_poll(void) {}
 void apx_display_poll(void) {}
-uint32_t apx_spr_read(uint32_t reg) {(void)reg;return 0;}
+uint32_t apx_spr_read(uint32_t reg) {assert(camera.state!=APX_CAMERA_OFF||reg<0xb000||reg>0xb1ff);return 0;}
 int apx_dma_clean(const void *p,size_t n) {(void)p;(void)n;return 0;}
 int apx_dma_invalidate(void *p,size_t n) {(void)p;(void)n;return 0;}
-int apx_camera_init(void) {camera.state=init_result?APX_CAMERA_ERROR:APX_CAMERA_READY;camera.error=init_result;return init_result;}
+int apx_camera_init(void) {camera.state=init_result?APX_CAMERA_ERROR:APX_CAMERA_READY;camera.error=init_result;camera.native_width=640;camera.native_height=480;return init_result;}
+unsigned apx_camera_count(void) {return APX_CAMERA_COUNT;}
+int apx_camera_select(enum apx_camera_id id) {if((unsigned)id>=APX_CAMERA_COUNT)return APX_CAMERA_UNSUPPORTED;camera.selected=id;return 0;}
+void apx_camera_shutdown(void) {camera.state=APX_CAMERA_OFF;}
 void apx_camera_get_info(struct apx_camera_info *i) {*i=camera;}
 void apx_camera_stop(void) {camera.state=APX_CAMERA_READY;}
 int apx_camera_capture_start(void *p,size_t capacity) {
@@ -35,28 +43,36 @@ int apx_camera_capture_start(void *p,size_t capacity) {
  camera.scaled=0;return 0;
 }
 int apx_camera_scaled_start(void *p,size_t capacity,unsigned w,unsigned h,unsigned pitch) {
- assert(capacity==59136&&w==220&&h==176&&pitch==224&&!((uintptr_t)p&31));
+ assert(capacity==PB&&w==PW&&h==PH&&pitch==PP&&!((uintptr_t)p&31));
  assert(display_state!=APX_DISPLAY_BUSY||p!=display_buffer);
  camera.state=APX_CAMERA_CAPTURING;camera.buffer=(uintptr_t)p;camera.scaled=1;
  camera.width=w;camera.height=h;camera.pitch=pitch;return 0;
 }
 void apx_camera_poll(void) {if(complete_camera&&camera.state==APX_CAMERA_CAPTURING){
  uint8_t *p=(void *)(uintptr_t)camera.buffer;
- if(camera.scaled){for(unsigned n=0;n<59136;++n)p[n]=(n/224*5+n%224*3)&255;}
+ if(camera.scaled){for(unsigned n=0;n<PB;++n)p[n]=(n/PP*5+n%PP*3)&255;}
  else {for(unsigned n=0;n<307200;++n)p[n]=(n/640*5+n%640*3)&255;
  for(unsigned n=0;n<153600;++n)p[307200+n]=(n/640*7+n%640)&255;}
  camera.state=APX_CAMERA_DONE;++camera.completed;complete_camera=0;}}
 enum apx_display_state apx_display_status(void) {return display_state;}
 int apx_display_blit_nv21(unsigned x,unsigned y,unsigned w,unsigned h,const uint8_t *luma,const uint8_t *chroma,unsigned pitch) {
- assert(!x&&!y&&w==220&&h==176&&pitch==224&&chroma==luma+224*176);
+ assert(!x&&!y&&w==PW&&h==PH&&pitch==PP&&chroma==luma+PP*PH);
  if(init_result){ /* sensor-less test pattern: eight vertical bars, white to black */
-  assert(display_state==APX_DISPLAY_READY&&luma[0]==235&&luma[100*224+223]==16);
-  for(unsigned row=0;row<176;++row)assert(luma[row*224+5]==235&&luma[row*224+30]==210&&luma[row*224+60]==170&&luma[row*224+100]==145);
-  assert(chroma[0]==128&&chroma[30]==146&&chroma[31]==16&&chroma[87*224+30]==146&&chroma[87*224+31]==16);
+  assert(display_state==APX_DISPLAY_READY&&luma[0]==235&&luma[100*PP+PP-1]==16);
+  unsigned second=((PP/8+3)&~1u);
+  for(unsigned row=0;row<PH;++row)assert(luma[row*PP+5]==235&&luma[row*PP+second]==210&&luma[row*PP+PP/4+2]==170);
+  assert(chroma[0]==128&&chroma[second]==146&&chroma[second+1]==16&&chroma[(PH/2-1)*PP+second]==146);
   display_buffer=luma;display_state=APX_DISPLAY_BUSY;++display_count;++pattern_frames;return 0;
  }
- assert(display_state==APX_DISPLAY_READY&&luma[0]==0&&luma[224*175+219]==((175*5+219*3)&255));
- assert(chroma[224*87+219]==(((176+87)*5+219*3)&255));
+ assert(display_state==APX_DISPLAY_READY&&luma[0]==0);
+ if(camera.scaled){
+  assert(luma[PP*(PH-1)+PW-1]==(((PH-1)*5+(PW-1)*3)&255));
+  assert(chroma[PP*(PH/2-1)+PW-1]==(((PH+PH/2-1)*5+(PW-1)*3)&255));
+ }else{
+  assert(luma[PP*(PH-1)+PW-1]==(((PH-1)*480/PH*5+(PW-1)*640/PW*3)&255));
+  unsigned offset=((PW-2)*640/PW)&~1u,source_row=((PH/2-1)*2*480/PH)/2;
+  assert(chroma[PP*(PH/2-1)+PW-1]==((source_row*7+offset+1)&255));
+ }
  display_buffer=luma;display_state=APX_DISPLAY_BUSY;++display_count;return 0;
 }
 void apx_jpeg_poll(void) {if(complete_jpeg&&jpeg.state==APX_JPEG_ENCODING){
@@ -115,6 +131,7 @@ static void sensorless(void) {
  init_result=0;
 }
 int main(void) {
+ apx_camera_files_prepare();job(0); /* no sensor/clock-register access before init */
  assert(!apx_camera_files_init());ticks=2000;apx_camera_files_poll();assert(camera.state==APX_CAMERA_CAPTURING);
  complete_camera=1;apx_camera_files_poll();assert(display_count==1);
  const uint8_t *first=display_buffer;assert((void *)(uintptr_t)camera.buffer!=first&&camera.state==APX_CAMERA_CAPTURING);
@@ -131,6 +148,7 @@ int main(void) {
  assert(!command(5,NULL,0));job(0);
  uint8_t payload[12]={0};assert(command(1,payload,3)==APXD_INVALID);
  put32(payload,200);put32(payload+4,176);put32(payload+8,8);assert(command(2,payload,12)==0x502);
+ display_state=APX_DISPLAY_OFF;
  assert(!command(6,NULL,0));job(6);apx_camera_files_poll();job(6);
  assert(command(7,payload,8)==0x503);assert(command(6,NULL,0)==0x503);
  complete_camera=1;apx_camera_files_poll();job(7);
@@ -138,6 +156,19 @@ int main(void) {
  put32(payload,0xfffffff0);put32(payload+4,4096);assert(command(7,payload,8)==0x502);
  uint8_t *frame=(uint8_t *)(uintptr_t)camera.buffer;frame[-1]=0;
  put32(payload,0);put32(payload+4,1);assert(command(7,payload,8)==0x505);frame[-1]=0xa5;
+ /* Redraw a frozen overlay only after the LCD releases its buffer. The
+  * immutable raw frame must remain available for printing/JPEG encoding. */
+ unsigned before_display=display_count,before_overlay=overlay_calls;
+ apx_camera_files_redraw();apx_camera_files_poll();job(7);
+ assert(display_count==before_display&&overlay_calls==before_overlay);
+ display_state=APX_DISPLAY_READY;
+ apx_camera_files_poll();job(7);
+ assert(display_count==before_display+1&&overlay_calls==before_overlay+1);
+ assert(camera.state==APX_CAMERA_DONE&&!camera.scaled);
+ for(unsigned n=0;n<307200;++n)assert(frame[n]==((n/640*5+n%640*3)&255));
+ for(unsigned n=0;n<153600;++n)assert(frame[307200+n]==((n/640*7+n%640)&255));
+ apx_camera_files_poll();display_state=APX_DISPLAY_READY;apx_camera_files_poll();
+ assert(display_count==before_display+1&&overlay_calls==before_overlay+1);
  put32(payload,2048);put32(payload+4,1536);put32(payload+8,8);assert(!command(2,payload,12));
  complete_camera=1;apx_camera_files_poll();job(3);
  assert(command(1,payload,4)==APXD_INVALID);complete_jpeg=1;apx_camera_files_poll();job(4);
@@ -151,6 +182,16 @@ int main(void) {
   assert(!command(2,payload,12));complete_camera=1;apx_camera_files_poll();job(3);
   complete_jpeg=1;apx_camera_files_poll();job(4);assert(!command(5,NULL,0));
  }
+#if APX_BOARD_SILVERGEAR
+ for(unsigned trial=0;trial<10;++trial) {
+  unsigned previous=camera.selected;
+  put32(payload,trial&1);display_state=APX_DISPLAY_BUSY;
+  assert(command(8,payload,4)==0x503&&camera.selected==previous);
+  display_state=APX_DISPLAY_READY;
+  assert(!command(8,payload,4)&&camera.selected==(trial&1));job(0);
+  assert(strstr((char *)out,"\"preview\":false"));
+ }
+#endif
  sensorless();
  puts("Camera service model: scaler preview, two-buffer backpressure, LCD ownership, guard abort, raw/JPEG bounds, guards, busy/cancel and create-new/sync/close passed");
 }

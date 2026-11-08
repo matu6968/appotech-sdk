@@ -1,4 +1,4 @@
-/* Host model of everything boot/flasher.c touches: the SPI controller with a 2 MiB NOR behind it, the PM chip's
+/* Host model of everything boot/flasher.c touches: the SPI controller with a 2/4 MiB NOR behind it, the PM chip's
  * serial bus, the watchdog and the data-cache maintenance hook. Built as a shared library together with the real
  * flasher.c (-DFLASHER_HOST) and driven from Python, so the payload logic and the host client are exercised
  * against each other without hardware. */
@@ -7,8 +7,9 @@
 
 void rescue(volatile void *control);
 
-#define NOR_SIZE 0x200000u
+#define NOR_SIZE 0x400000u
 static uint8_t nor[NOR_SIZE];
+static uint32_t jedec_id, nor_size, commands[256];
 static uint32_t spr[0x10000];
 static uint8_t pm[0x60];
 static unsigned pm_phase, pm_address;
@@ -31,12 +32,12 @@ static void flash_deselect(void){
 }
 static uint8_t flash_byte(uint8_t out){
     uint8_t in=0xff;
-    if(flash.count==0){flash.op=out;if(out==6)flash.status|=2;}
+    if(flash.count==0){flash.op=out;++commands[out];if(out==6)flash.status|=2;}
     else if(flash.op==0x05){in=flash.status;if(flash.status&1){if(busy_left)--busy_left;if(!busy_left)flash.status&=~1u;}}
-    else if(flash.op==0x9f){static const uint8_t id[3]={0x5e,0x40,0x15};in=flash.count<=3?id[flash.count-1]:0xff;}
+    else if(flash.op==0x9f){in=flash.count<=3?(jedec_id>>(8*(3-flash.count)))&255:0xff;}
     else if(flash.op==0x03||flash.op==0x02||flash.op==0x20){
         if(flash.count<=3)flash.address=flash.address<<8|out;
-        else if(flash.op==0x03)in=nor[(flash.address++)&(NOR_SIZE-1)];
+        else if(flash.op==0x03)in=nor[(flash.address++)&(nor_size-1)];
         else if(flash.op==0x02&&flash.page_len<256)flash.page[flash.page_len++]=out;
         if(flash.op==0x20&&flash.count==3&&(flash.status&2)){
             memset(nor+(flash.address&~4095u),0xff,4096);flash.status&=~2u;flash.status|=1;busy_left=busy_polls;
@@ -79,6 +80,7 @@ void flasher_cache_range(const volatile void *start,uint32_t bytes){
 /* -- harness API (ctypes) -- */
 void model_reset(void){
     memset(nor,0xff,sizeof nor);memset(spr,0,sizeof spr);memset(&flash,0,sizeof flash);
+    jedec_id=0x5e4015;nor_size=0x200000;memset(commands,0,sizeof commands);
     for(unsigned i=0;i<sizeof pm;++i)pm[i]=0;
     pm[0x40]=0x16;pm[0x44]=0x00;pm[0x54]=0x21;pm[0x58]=0x0c;pm[0x5a]=0x00;
     spr[0x9000]=0x4000; /* chip select released */
@@ -86,6 +88,9 @@ void model_reset(void){
     pm_phase=0;wdt=0x1234;wdt_reloads=0;busy_polls=2;busy_left=0;sync_count=0;
 }
 uint8_t *model_nor(void){return nor;}
+void model_set_flash(uint32_t id){jedec_id=id;nor_size=(id&255)==0x16?0x400000:0x200000;}
+void model_set_flash_status(unsigned value){flash.status=value;}
+uint32_t model_command_count(unsigned op){return commands[op&255];}
 uint8_t *model_pm(void){return pm;}
 void model_set_busy_polls(uint32_t n){busy_polls=n;}
 void model_set_sram_window(const void *lo,uint64_t length){sram_lo=lo;sram_hi=(const uint8_t *)lo+length;}

@@ -12,6 +12,8 @@
  *
  * Command 0 with address bit 0 set probes the JEDEC ID using the SPI state the BootROM already programmed (same
  * register protocol as BootROM 0x104ac4..0x104d20); without it the full SDK setup is applied first.
+ * JEDEC is returned raw. Each flash access reprobes the chip: reads accept capacity codes 0x15/0x16 (2/4 MiB),
+ * while erase/program still require exactly 5e4015. No chip geometry is trusted from the host request.
  * Commands 7/8 drive the always-powered PM chip over its serial bus (SPR 0x88e0/0x88ec, same transactions as
  * src/power.c): 8 reads registers 0x40..0x5a, 7 applies the stock start-up sequence so the keep-alive
  * (reg 0x5a = 0x08) is restored without any flash access.
@@ -31,6 +33,23 @@
 #define SRAM_WINDOW_DATA 512u
 #define DDR_WINDOW_DATA 0x8000u
 #define HEADER_BYTES 28u
+
+#if defined(SILVERGEAR_FULL_RESTORE)&&!defined(SILVERGEAR_BOOT_RESTORE)
+#error SILVERGEAR_FULL_RESTORE extends SILVERGEAR_BOOT_RESTORE; build both defines
+#endif
+#ifdef SILVERGEAR_BOOT_RESTORE
+/* Recovery binaries write only a 944016 chip from the SRAM window, only with their own request-flags value, and
+ * never touch the PM chip. The incident build allows three sectors; the full build ("SGFR") allows any sector of
+ * the 4 MiB chip so a verified stock.bin or a packed SDK image can be written back from a forced BootROM. The two
+ * flags values differ on purpose: a host speaking one protocol cannot drive the other binary. */
+#ifdef SILVERGEAR_FULL_RESTORE
+#define RESTORE_FLAGS 0x53464752u
+#define RESTORE_SECTOR_OK(s) ((s)<0x400000u)
+#else
+#define RESTORE_FLAGS 0x53470000u
+#define RESTORE_SECTOR_OK(s) ((s)==0||(s)==0x1000||(s)==0x3ff000)
+#endif
+#endif
 
 #ifdef FLASHER_HOST /* host model: the harness supplies the registers, the address-space split and the cache */
 uint32_t flasher_rd(unsigned r);
@@ -70,6 +89,9 @@ static int byte(unsigned v,unsigned receive,uint8_t *out){
  for(unsigned n=0;n<200000;++n){if(rd(0x9248)&1){if(out)*out=rd(0x9250);return 0;}if(!(n&1023))feed();}
  return 2;
 }
+static int jedec(uint8_t *out){
+ cs(1);cs(0);int e=byte(0x9f,0,0);for(unsigned i=0;i<3&&!e;++i)e=byte(255,1,out+i);cs(1);return e;
+}
 static int status(uint8_t *out){cs(0);int e=byte(5,0,0);if(!e)e=byte(255,1,out);cs(1);return e;}
 static int ready(void){uint8_t value;
  for(unsigned n=0;n<1000000;++n){int e=status(&value);if(e||!(value&1))return e;feed();}return 2;
@@ -103,6 +125,12 @@ struct request {uint32_t magic,sequence,command,address,length,status,flags;uint
 /* Every return before the final status store leaves status = 1 (not done), which the host treats as failure. */
 static void run(struct request *p){
  p->status=1;unsigned command=p->command;uint32_t a=p->address,n=p->length;int e=0;
+#ifdef SILVERGEAR_BOOT_RESTORE
+ /* Separate recovery binary only: no PM writes and no general 4 MiB writer.
+  * Normal flasher builds retain their original 5e4015-only write policy. */
+ if(command==7){p->status=3;return;}
+ if(command==9){if(n!=1)return;e=status(p->data);p->status=e;return;}
+#endif
  if(command==0){
   if(!(a&1)){
   upd(0x8850,0xf0000000,0x30000000);upd(0x8844,8,0);upd(0x8840,1u<<20,0);
@@ -112,8 +140,7 @@ static void run(struct request *p){
   for(unsigned r=0x9250;r<=0x927c;r+=4)wr(r,0);
   wr(0x9260,0xffff);wr(0x9264,0xffffffff);wr(0x926c,0x0fffffff);wr(0x9270,0x0fffffff);
   }
-  cs(1);cs(0);e=byte(0x9f,0,0);for(unsigned i=0;i<3&&!e;++i)e=byte(255,1,p->data+i);cs(1);
-  if(!e&&(p->data[0]!=0x5e||p->data[1]!=0x40||p->data[2]!=0x15))e=3;
+  e=jedec(p->data);
  }else if(command==8){if(n!=14)return;
   for(unsigned i=0;i<14&&!e;++i)e=pm_rd(0x40+2*i,p->data+i);
  }else if(command==7){if(n!=14)return;
@@ -125,14 +152,27 @@ static void run(struct request *p){
  }else if(command==4){if(n!=4||a>0xffff)return;snap(p->data,a);}
  else if(command==5){if(a>0x00400000||n>0x00400000-a)return;const volatile uint8_t *src=(const volatile uint8_t *)(uintptr_t)a;
   for(unsigned i=0;i<n;++i)p->data[i]=src[i];}
- else if(a>=0x200000||n>0x200000-a)return;
- else if(command==1){cs(0);e=address(3,a);for(unsigned i=0;i<n&&!e;++i)e=byte(255,1,p->data+i);cs(1);}
- else if(command==2||command==3){
-  if(command==2&&(!n||n>256-(a&255)))return;
-  if(command==3&&(n||a&4095))return;
-  e=enable();if(!e){cs(0);e=address(command==2?2:0x20,a);
-   if(command==2)for(unsigned i=0;i<n&&!e;++i)e=byte(p->data[i],0,0);
-   cs(1);if(!e)e=ready();}
+ else if(command>=1&&command<=3){
+  uint8_t id[3];e=jedec(id);if(e){p->status=e;return;}
+  if((unsigned)(id[2]-0x15)>1){p->status=3;return;}
+  uint32_t capacity=1u<<id[2];if(a>=capacity||n>capacity-a)return;
+  if(command==1){cs(0);e=address(3,a);for(unsigned i=0;i<n&&!e;++i)e=byte(255,1,p->data+i);cs(1);}
+  else{
+#ifdef SILVERGEAR_BOOT_RESTORE
+   uint32_t sector=a&~4095u;
+   if(!IS_SRAM(p)||p->flags!=RESTORE_FLAGS||id[0]!=0x94||id[1]!=0x40||id[2]!=0x16||
+      !RESTORE_SECTOR_OK(sector)){p->status=3;return;}
+   uint8_t protection;e=status(&protection);
+   if(e||(protection&0xfc)){p->status=e?e:3;return;}
+#else
+   if(id[0]!=0x5e||id[1]!=0x40||id[2]!=0x15){p->status=3;return;}
+#endif
+   if(command==2&&(!n||n>256-(a&255)))return;
+   if(command==3&&(n||a&4095))return;
+   e=enable();if(!e){cs(0);e=address(command==2?2:0x20,a);
+    if(command==2)for(unsigned i=0;i<n&&!e;++i)e=byte(p->data[i],0,0);
+    cs(1);if(!e)e=ready();}
+  }
  }else return;
  p->status=e;
 }

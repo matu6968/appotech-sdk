@@ -2,6 +2,11 @@
 
 Bare-metal C SDK for the Action Vision/AppoTech JT5295 camera, launched through
 USB or a board-specific SPI image.
+The separate `BOARD=silvergear-3222882` RAM target has verified display, power,
+DDR and both cameras; see [Silvergear camera acceptance](research/silvergear/cameras.md).
+Thermal printing now works with the stock-derived analog setup; see
+[the printer notes](research/silvergear/printer.md) (the bring-up and acceptance report is archived in `cleanup-archive-20261108/dated-bringup-reports-20261102-20261108.tar.gz`).
+`action-vision` remains the default, with separate Silvergear build objects.
 The native profile uses little-endian code/data, calls linking to PC+4, inert
 branch slots and software floating point. Multiply and divide run on the chip's `l.mul`/`l.div`/`l.divu`
 through `src/hwmuldiv.S` (the compiler profile is still `-mappotech` software mul/div; `make HW_MULDIV=0` links libgcc's
@@ -80,6 +85,28 @@ same example's manifest to the launch command:
 make LTO=1 EXAMPLE=camera-demo
 apxtool --device /dev/sg0 sdk launch build/camera-demo.manifest.json --reclaim-jpeg-ram
 ```
+
+### Which examples run on which board
+
+`BOARD=action-vision` (default) and `BOARD=silvergear-3222882` (the printer camera; build with `make BOARD=silvergear-3222882
+EXAMPLE=<name>`, output under `build/silvergear-3222882/`). "Hardware" means RAM-launched on the camera and checked there; the
+Silvergear reports are in `research/silvergear/`.
+
+| Example | Action camera | Silvergear |
+| --- | --- | --- |
+| `usb-debug`, `display-demo` | yes | builds (geometry from the board header); `tools/display_demo.py` is Action-only |
+| `gpio-demo` | yes | key tiles, flash LED on a Power click (board-aware layout) |
+| `sd-demo` | yes | hardware: mount, stdio read (smaller heap to fit the runtime window) |
+| `jpeg-demo` | yes | hardware: preview/decode on the 320x240 panel, hardware encoder byte-identical to Action |
+| `audio-demo`, `microphone-demo` | yes | hardware: speaker, microphone, clocks exact at 8/16/32 kHz |
+| `lvgl-demo` | yes | hardware: benchmark and widgets, key map without UP/DOWN |
+| `muldiv-test`, `exc-probe` | yes | hardware: 700 vectors pass; CPU exception recorded and reported after reset |
+| `camera-demo` | yes | not supported (stops with an `#error`); use `printer-camera-demo` |
+| `printer-camera-demo`, `printer-test`, `printer-sd-demo`, `printer-sd-compare` | no printer (`printer-camera-demo` and `printer-test` still compile; the SD printer examples do not) | yes |
+
+On Silvergear `apx_power_off()` waits for the Power key to be released first, as the stock shutdown does (Power shares the key
+ladder). SPI-image installs, the flash LED and the cold-boot findings are in `research/silvergear/spi-install-plan.md` and
+`research/silvergear/flash-led.md`.
 
 The optional LVGL 10.0.0 port can be built and launched with:
 
@@ -467,7 +494,8 @@ short Power press. Holding Power for two seconds in `gpio-demo` requests
 graceful shutdown, which rejects open file/directory handles. Applications
 choose their own button policy. Screen tiles are SHUTTER, DOWN,
 UP on the top row and LEFT, RIGHT, POWER below, turning green while pressed.
-The blue status LED uses PB5 forced-high/low output; display backlight uses
+The blue status LED uses PB5 forced-high/low output. On Silvergear `apx_led_set` drives the white flash LED on PB0
+(active high, stock board device "ir"; see `research/silvergear/flash-led.md`). Display backlight uses
 `apx_display_backlight`. The battery overlay uses a plus sign for external power; charge-active/full status remains unidentified.
 
 `gpio.h` provides five banks, masked pin reads/writes, input/output direction,

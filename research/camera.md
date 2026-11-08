@@ -1,5 +1,9 @@
 # Independent camera capture
 
+For Silvergear 3222882 dual-camera selection, resources and RAM-only hardware
+acceptance, see [Silvergear cameras](silvergear/cameras.md). The original
+Action Vision evidence and instructions are below.
+
 The Action Vision board now has an independent sensor/DVP driver, live LCD preview,
 raw frame retrieval, hardware JPEG still encoding and create-new SD photo saving.
 The verified sensor configuration is **640×480**, ID **0x39** at I²C address
@@ -114,6 +118,7 @@ all reads return at most 4096 bytes.
 | 5 STOP | Empty | Cancel capture/encoding and pause preview |
 | 6 RAW CAPTURE | Empty | Pause preview and capture a native frame |
 | 7 READ RAW | u32 offset, length | Stable completed 460800-byte NV21 frame |
+| 8 SELECT | u32 camera (0 rear, 1 front) | Select an idle supported camera; rejects active capture or LCD transfer |
 
 Job states are idle=0, preview=1, capture-for-JPEG=2, encoding=3, photo-ready=4,
 error=5, raw-capture=6, raw-ready=7. Camera errors are 0x500 plus INVALID=1,
@@ -127,6 +132,9 @@ identifies the most recently submitted complete LCD frame. Pause preview before
 reading it through memory debugging; it is only a stable snapshot while preview
 is off. Both preview buffers remain inside the existing protected EXTRA RAM
 reservation. No operation numbers or APXD framing changed.
+Board-aware INFO also reports `selected`, `camera_count`, `native_width`,
+`native_height`, and `test_pattern`. Selection is available through
+`apxtool debug camera select rear|front`; Action Vision supports rear only.
 The Python `CameraClient` and CLI perform the framing/chunking. Invalid lengths,
 unknown commands, overflow, reads during capture, malformed paths and writes to
 protected camera RAM are rejected. Raw memory override remains explicit.

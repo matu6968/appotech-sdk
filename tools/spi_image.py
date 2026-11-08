@@ -8,5 +8,7 @@ p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('--original',type=Path,required=True)
 p.add_argument('--manifest',type=Path,required=True)
 p.add_argument('--output',type=Path,required=True)
+p.add_argument('--board',choices=('action','silvergear'),default='action',
+               help='original backup layout: action (2 MiB) or silvergear (4 MiB, stock.bin)')
 a=p.parse_args()
-print(json.dumps(package(a.original,a.manifest,a.output),indent=2))
+print(json.dumps(package(a.original,a.manifest,a.output,a.board),indent=2))

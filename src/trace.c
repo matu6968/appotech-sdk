@@ -89,7 +89,7 @@ static int jedec_ok(void){
     int e=xfer(0x9f,0,0);
     for(unsigned i=0;i<3&&!e;++i)e=xfer(255,1,id+i);
     cs(1);
-    return !e&&id[0]==0x5e&&id[1]==0x40&&id[2]==0x15;
+    return !e&&id[0]==(APX_SPI_JEDEC>>16)&&id[1]==((APX_SPI_JEDEC>>8)&255)&&id[2]==(APX_SPI_JEDEC&255);
 }
 /* Same controller bring-up as apx_spi_init() and boot/flasher.c command 0. */
 static void spi_setup(void){

@@ -88,12 +88,30 @@ static uint16_t framebuffer[APX_DISPLAY_WIDTH * APX_DISPLAY_HEIGHT]
 static lv_display_t *display;
 static lv_indev_t *keypad;
 static lv_group_t *group;
-static uint32_t tick_previous, tick_fraction;
+static uint32_t tick_previous, tick_fraction, tick_ms_total;
 static uint32_t held_key;
 static unsigned flush_pending, port_error;
 
+/* LVGL's millisecond clock, read live from the 32.768 kHz reference. Advancing the tick only between lv_timer_handler()
+ * calls left it frozen while the handler rendered, so LVGL measured 0 ms busy time (0% CPU) and zero render times. */
+static uint32_t tick_ms(void)
+{
+    uint32_t now = apx_ticks();
+    uint64_t scaled = (uint64_t)(uint32_t)(now - tick_previous) * 1000u + tick_fraction;
+    tick_previous = now;
+    tick_ms_total += (uint32_t)(scaled / 32768u);
+    tick_fraction = (uint32_t)(scaled % 32768u);
+    return tick_ms_total;
+}
+
 static uint32_t key_from_buttons(uint32_t state)
 {
+#if APX_BOARD_SILVERGEAR
+    /* No UP/DOWN on this camera: MODE and EXIT move the focus, PRINT confirms like SHUTTER, LEFT/RIGHT adjust. */
+    if(state & APX_BUTTON_MENU) return LV_KEY_NEXT;
+    if(state & APX_BUTTON_EXIT) return LV_KEY_PREV;
+    if(state & APX_BUTTON_PRINT) return LV_KEY_ENTER;
+#endif
     if(state & APX_BUTTON_UP) return LV_KEY_PREV;
     if(state & APX_BUTTON_DOWN) return LV_KEY_NEXT;
     if(state & APX_BUTTON_LEFT) return LV_KEY_LEFT;
@@ -186,7 +204,11 @@ int apx_lvgl_port_init(void)
     if(apx_display_status() != APX_DISPLAY_READY) return -1;
 
     postmortem_start();
+    tick_previous = apx_ticks();
+    tick_fraction = 0;
+    tick_ms_total = 0;
     lv_init();
+    lv_tick_set_cb(tick_ms);
     display = lv_display_create(APX_DISPLAY_WIDTH, APX_DISPLAY_HEIGHT);
     if(!display) return -1;
     lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB565);
@@ -206,8 +228,6 @@ int apx_lvgl_port_init(void)
     lv_indev_set_display(keypad, display);
     lv_indev_set_group(keypad, group);
 
-    tick_previous = apx_ticks();
-    tick_fraction = 0;
     held_key = 0;
     flush_pending = port_error = 0;
     return 0;
@@ -230,10 +250,6 @@ int apx_lvgl_port_poll(void)
     }
 
     uint32_t now = apx_ticks();
-    uint32_t elapsed = (now - tick_previous) * 1000u + tick_fraction;
-    tick_previous = now;
-    lv_tick_inc(elapsed / 32768u);
-    tick_fraction = elapsed % 32768u;
     {
         volatile uint32_t *live = PM_BASE;
         if(held_key) live[8] = held_key;

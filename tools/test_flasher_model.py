@@ -20,7 +20,7 @@ def build(directory):
 class Model:
     def __init__(self,path):
         self.lib=ctypes.CDLL(str(path))
-        self.lib.model_nor.restype=ctypes.POINTER(ctypes.c_uint8*0x200000)
+        self.lib.model_nor.restype=ctypes.POINTER(ctypes.c_uint8*0x400000)
         self.lib.model_pm.restype=ctypes.POINTER(ctypes.c_uint8*0x60)
         self.lib.model_wdt.restype=ctypes.c_uint32;self.lib.model_wdt_reloads.restype=ctypes.c_uint32
         self.lib.model_sync_count.restype=ctypes.c_uint
@@ -118,6 +118,24 @@ with tempfile.TemporaryDirectory(prefix='jt5295-flasher-') as directory:
     assert calls[-1][0]==base and calls[-1][1]>=28+300,calls
     # Even a request rejected after the status word was written ends with a sync that covers it.
     m.reset();m.call(ddr,PM_READ,0,13);assert m.syncs()[-1][0]==base and m.syncs()[-1][1]>=28+13
+    # Raw identification and chip-derived read bounds, independent of any host-side validation.
+    for identity in (0x5e4016,0xef4016,0xef4015,0xab4017):
+        m.reset();m.lib.model_set_flash(identity)
+        status,data=m.call(sram,JEDEC,1,0)
+        assert status==0 and data[:3]==identity.to_bytes(3,'big')
+        if identity&255 in (0x15,0x16):
+            capacity=1<<(identity&255)
+            m.nor[capacity-1]=0x42
+            status,data=m.call(sram,READ,capacity-1,1);assert status==0 and data[0]==0x42
+            status,_=m.call(sram,READ,capacity-1,2);assert status!=0
+            status,_=m.call(sram,READ,capacity,1);assert status!=0
+        else:
+            status,_=m.call(sram,READ,0,1);assert status!=0
+            assert m.lib.model_command_count(3)==0,'unknown capacity never issues READ'
+        status,_=m.call(sram,PROGRAM,0,1,b'\0');assert status!=0
+        status,_=m.call(sram,ERASE,0,0);assert status!=0
+        assert m.lib.model_command_count(6)==0,'unsupported writes never issue WREN'
+        assert m.lib.model_command_count(2)==0 and m.lib.model_command_count(0x20)==0
     # Layout contract shared with apxtool: 28-byte header, status at offset 20.
     assert HEADER.size==28
-print('flasher model: SRAM and DDR windows, NOR semantics, PM sequence, watchdog flag, cache coverage, malformed requests')
+print('flasher model: SRAM/DDR, 2/4 MiB bounds, raw JEDEC, write guards, NOR, PM, watchdog, cache, malformed requests')

@@ -114,9 +114,9 @@ static unsigned horizontal_ratio(unsigned source,unsigned target) {
  return (exponent<<18)|(((reduced<<16)+target-1)/target);
 }
 static int range(const void *p,size_t n) {uintptr_t a=(uintptr_t)p;return !(a&31)&&a>=APX_RAM_BASE&&a<APX_RAM_END&&n<=APX_RAM_END-a;}
-int apx_jpeg_decode_start(const void *jpeg,size_t bytes,void *output,size_t capacity,unsigned w,unsigned hgt) {
+static int decode_start(const void *jpeg,size_t bytes,void *output,size_t capacity,unsigned w,unsigned hgt,unsigned max_w,unsigned max_h) {
  if(info.state==APX_JPEG_DECODING||info.state==APX_JPEG_ENCODING)return APX_JPEG_BUSY;
- if(bytes<4||bytes>APX_RAM_END-APX_RAM_BASE||!w||!hgt||(w|hgt)&1||w>224||hgt>220)return APX_JPEG_RANGE;
+ if(bytes<4||bytes>APX_RAM_END-APX_RAM_BASE||!w||!hgt||(w|hgt)&1||w>max_w||hgt>max_h)return APX_JPEG_RANGE;
  unsigned pitch=(w+31)&~31u;size_t needed=(size_t)pitch*hgt*3/2;
  if(capacity<needed||!range(jpeg,(bytes+63)&~31u)||!range(output,needed))return APX_JPEG_RANGE;
  uintptr_t a=(uintptr_t)jpeg,b=(uintptr_t)output;
@@ -141,6 +141,12 @@ int apx_jpeg_decode_start(const void *jpeg,size_t bytes,void *output,size_t capa
  apx_spr_write(JD+0xc0,(header.width<<16)|pitch);
  output_buffer=output;output_bytes=needed;start=apx_ticks();deadline=start+65536;info.state=APX_JPEG_DECODING;
  apx_spr_write(JD,apx_spr_read(JD)|0x20000063u);return 0;
+}
+int apx_jpeg_decode_start(const void *jpeg,size_t bytes,void *output,size_t capacity,unsigned w,unsigned hgt) {
+ return decode_start(jpeg,bytes,output,capacity,w,hgt,224,220);
+}
+int apx_jpeg_decode_start_large(const void *jpeg,size_t bytes,void *output,size_t capacity,unsigned w,unsigned hgt) {
+ return decode_start(jpeg,bytes,output,capacity,w,hgt,APX_JPEG_LARGE_MAX_WIDTH,APX_JPEG_LARGE_MAX_HEIGHT);
 }
 static void stop(void) {
  apx_spr_write(JD,apx_spr_read(JD)|128u);apx_spr_write(JD,0);apx_spr_write(JD+0xb0,4092);

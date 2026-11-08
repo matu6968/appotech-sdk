@@ -1,0 +1,58 @@
+{
+  "width": 384,
+  "height": 128,
+  "format": "luma8",
+  "input_levels": [
+    0,
+    32,
+    64,
+    96,
+    128,
+    160,
+    192,
+    224
+  ],
+  "rows_top_to_bottom": [
+    "raw",
+    "stock final curve",
+    "squared correction then stock curve"
+  ],
+  "row_values": [
+    [
+      0,
+      32,
+      64,
+      96,
+      128,
+      160,
+      192,
+      224
+    ],
+    [
+      10,
+      35,
+      60,
+      85,
+      110,
+      135,
+      160,
+      185
+    ],
+    [
+      10,
+      13,
+      22,
+      38,
+      60,
+      88,
+      123,
+      163
+    ]
+  ],
+  "sha256": "ebe6b2941002922801a2129d0fab26573bce17d887423bb014677a79f82ce62d",
+  "labels": {
+    "1": "raw",
+    "2": "stock final curve",
+    "3": "squared correction then stock curve"
+  }
+}

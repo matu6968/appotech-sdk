@@ -8,6 +8,33 @@
 #include <demos/lv_demos.h>
 #include <stdio.h>
 
+#if APX_LVGL_PERF
+/* Show the summary on screen as LVGL does by default, and also print every row as CSV (the table is taller than the
+ * 240-pixel panel, so the last scenes are cut off on screen). Read it with `apxtool debug logs` or the UART. */
+static void benchmark_report(const lv_demo_benchmark_summary_t *summary)
+{
+    lv_demo_benchmark_summary_display(summary);
+    lv_display_t *display = lv_display_get_default();
+    printf("LVGL benchmark results (%dx%d)\r\n", (int)lv_display_get_horizontal_resolution(display),
+           (int)lv_display_get_vertical_resolution(display));
+    printf("Name, Avg. CPU %%, Avg. FPS, Avg. ms, render ms, flush ms\r\n");
+    for(const lv_demo_benchmark_scene_dsc_t *scene = summary->scenes; scene->create_cb; ++scene) {
+        if(!scene->measurement_cnt) { printf("%s, N/A\r\n", scene->name); continue; }
+        unsigned count = scene->measurement_cnt;
+        unsigned render = scene->render_avg_time / count, flush = scene->flush_avg_time / count;
+        printf("%s, %u, %u, %u, %u, %u\r\n", scene->name, (unsigned)(scene->cpu_avg_usage / count),
+               (unsigned)(scene->fps_avg / count), render + flush, render, flush);
+    }
+    if(summary->valid_scene_cnt) {
+        unsigned n = (unsigned)summary->valid_scene_cnt;
+        unsigned render = (unsigned)summary->total_avg_render_time / n, flush = (unsigned)summary->total_avg_flush_time / n;
+        printf("All scenes avg., %u, %u, %u, %u, %u\r\n", (unsigned)summary->total_avg_cpu / n,
+               (unsigned)summary->total_avg_fps / n, render + flush, render, flush);
+    }
+    printf("LVGL benchmark done\r\n");
+}
+#endif
+
 int main(void)
 {
     static char demo_name[] = APX_LVGL_DEMO;
@@ -32,6 +59,9 @@ int main(void)
         for(;;) apx_debug_poll();
     }
 
+#if APX_LVGL_PERF
+    lv_demo_benchmark_set_end_cb(benchmark_report);
+#endif
     int created = lv_demos_create(demo_args, 1);
     apx_trace(APX_TRACE_LVGL+4,(uint32_t)created);apx_mark(APX_TRACE_LVGL+4,(uint32_t)created);
     if(!created) {

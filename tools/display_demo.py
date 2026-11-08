@@ -24,7 +24,7 @@ def status(client,address):
     if result['magic']!=0x31505344 or result['version'] not in (1,2):
         raise RuntimeError('display-demo mailbox not initialized')
     if (result['width'],result['height'])!=(220,176):
-        raise RuntimeError('unexpected panel dimensions')
+        raise RuntimeError('unexpected panel dimensions: this tool verifies the Action camera 220x176 panel only (the Silvergear ST7789 path is covered by tests/st7789_model.c and research/silvergear)')
     if result['version']==2:
         result.update(zip(('dma_enabled','dma_transfers','last_transfer_ticks'),struct.unpack('<3I',client.read(address+48,12,width=4))))
     return result

@@ -5,11 +5,13 @@
 #include <appotech/watchdog.h>
 #include <appotech/power.h>
 #include <appotech/clock.h>
+#include "board.h"
 #include <assert.h>
 #include <setjmp.h>
 #include <stdio.h>
 #include <string.h>
 #include <appotech/exception.h>
+#include <appotech/buttons.h>
 void apx_exception_expect_reset(void) {}
 int apx_exception_previous(struct apx_exception *out) { (void)out;return 0; }
 const char *apx_exception_name(uint32_t vector) { (void)vector;return ""; }
@@ -53,6 +55,7 @@ void apx_jpeg_shutdown(void) {}
 void apx_audio_shutdown(void) {}
 void apx_mic_shutdown(void) {}
 void apx_camera_shutdown(void) {}
+void apx_printer_shutdown(void) {}
 void apx_uart_shutdown(void) {}
 void apx_spi_shutdown(void) {}
 void apx_battery_shutdown(void) {}
@@ -61,6 +64,12 @@ void apx_clock_get_info(struct apx_clock_info *info) {memset(info,0,sizeof(*info
 void apx_display_shutdown(void) { display_order=++order; }
 void apx_sd_shutdown(void) { sd_order=++order; }
 void apx_buttons_shutdown(void) { ++order; }
+/* Controllable key ladder for apx_power_off()'s wait on Silvergear: Power reads as held for `key_held_polls` more polls, or forever. */
+static unsigned key_polls,key_held_polls,key_stuck;
+void apx_buttons_poll(void) { ++key_polls;if(key_held_polls)--key_held_polls; }
+void apx_buttons_get_info(struct apx_buttons_info *info) {
+    memset(info,0,sizeof(*info));info->state=(key_stuck||key_held_polls)?APX_BUTTON_POWER:0;
+}
 int apx_usb_high_speed(void) { return 1; }
 unsigned apx_usb_suspend_count(void) { return 0; }
 unsigned apx_usb_resume_count(void) { return 0; }
@@ -91,12 +100,16 @@ int main(void) {
     regs[0x88e0]=0x220245;pm[0]=0x16;pm[1]=0x50;pm[10]=0x21;
     /* Cold SPI boot PM state, then the stock power-domain sequence. */
     {uint8_t saved[16];memcpy(saved,pm,sizeof(saved));uint32_t control=regs[0x88e0];
-     memset(pm,0,sizeof(pm));pm[0]=0x02;pm[1]=0x58;pm[2]=0x10;pm[10]=0x01;regs[0x88e0]=0x220002;
+     memset(pm,0,sizeof(pm));pm[0]=APX_BOARD_SILVERGEAR?0x82:0x02;
+     pm[1]=0x58;pm[2]=0x10;pm[10]=0x01;pm[13]=APX_BOARD_SILVERGEAR?0x81:0;
+     regs[0x88e0]=0x220002;
      unsigned writes=pm_writes;
      assert(apx_power_domain_enable()==0&&pm_writes==writes+7);
-     assert(pm[0]==0x16&&pm[1]==0xe0&&pm[2]==0x00&&pm[12]==0x08&&pm[13]==0x08&&pm[10]==0x21);
+     assert(pm[0]==(APX_BOARD_SILVERGEAR?0x96:0x16)&&pm[1]==0xe0&&
+            pm[2]==(APX_BOARD_SILVERGEAR?0x10:0)&&pm[12]==0x08&&
+            pm[13]==(APX_BOARD_SILVERGEAR?0x89:0x08)&&pm[10]==0x21);
      assert((regs[0x88e0]&0x40)&&!(regs[0x88e0]&0x100));
-     writes=pm_writes;assert(apx_power_domain_enable()==0&&pm[0]==0x16&&pm[12]==0x08&&pm[10]==0x21&&pm_writes==writes+6); /* idempotent: bit 5 already set, no extra write */
+     writes=pm_writes;assert(apx_power_domain_enable()==0&&pm[0]==(APX_BOARD_SILVERGEAR?0x96:0x16)&&pm[12]==0x08&&pm[10]==0x21&&pm_writes==writes+6); /* idempotent: bit 5 already set, no extra write */
      regs[0x88e0]=0x220002|0x100; /* another transaction owns the bus: refuse, change nothing */
      writes=pm_writes;assert(apx_power_domain_enable()==-1&&pm_writes==writes);
      memcpy(pm,saved,sizeof(pm));regs[0x88e0]=control;pm_phase=0;}
@@ -124,6 +137,7 @@ int main(void) {
     assert(request(2,camera_payload,12)==APXD_UNSUPPORTED);
     operation=APXD_SPI;assert(request(1,camera_payload,8)==APXD_UNSUPPORTED);
     operation=APXD_UART;assert(request(1,camera_payload,12)==APXD_UNSUPPORTED);
+    operation=APXD_PRINTER;assert(request(3,camera_payload,8)==APXD_UNSUPPORTED);
     operation=APXD_BATTERY;assert(request(0,NULL,0)==APXD_UNSUPPORTED);
     assert(request(0,camera_payload,4)==APXD_UNSUPPORTED);
     operation=APXD_SYSTEM;
@@ -149,5 +163,20 @@ int main(void) {
         if(action==2)assert(pm[10]==1&&pm[2]==0x10&&pm[1]==0xe0&&pm[0]==2);
         pm_phase=0;regs[0x88e0]=original;
     }
+#if APX_BOARD_SILVERGEAR
+    /* apx_power_off() on Silvergear waits for a held Power key to be released (stock 0200eb2c) before the supply is cut. */
+    for(volatile unsigned stuck=0;stuck<2;++stuck) {
+        expect_event=2;event=0;tx_idle=1;key_polls=0;key_stuck=stuck;key_held_polls=stuck?0:5;
+        volatile uint32_t t0=ticks;pm_phase=0;regs[0x88e0]=original;
+        if(!setjmp(terminal)) { apx_power_off();assert(0); }
+        assert(event==2&&pm[0]==2&&pm[2]==0x10);
+        if(!stuck)assert(key_polls==5&&!key_held_polls);              /* Power reads held after polls 1-4, released at the fifth: one poll each, then power-off */
+        else assert((uint32_t)(ticks-t0)>=10u*32768u&&key_polls>1000); /* a stuck key is abandoned after 10 s */
+        key_stuck=0;
+    }
+    key_polls=0;expect_event=2;event=0;pm_phase=0;regs[0x88e0]=original;       /* Power not held: no waiting at all */
+    if(!setjmp(terminal)) { apx_power_off();assert(0); }
+    assert(event==2&&key_polls==1);
+#endif
     puts("system model: watchdog auto/manual/disable, PM transaction bounds/timeouts, open-file refusal and ACK-before-reset/power-off passed");
 }
