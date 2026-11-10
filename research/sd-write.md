@@ -40,8 +40,8 @@ The [SD Association physical-layer specification](https://www.sdcard.org/cms/wp-
 defines CSD permanent/temporary write protection at bits 13/12, R1
 WP_VIOLATION at bit 26, CMD24 addressing and the ready/transfer-state fields.
 The SDK respects those protection signals. A mechanical socket write-protect
-sensor has not been mapped. Transfers remain one-bit at nominal 24 MHz with
-one CMD24 per sector; CMD25, four-bit operation and TRIM are deferred.
+sensor has not been mapped. This was the first milestone (one-bit, one CMD24 per sector); CMD25 streaming,
+high speed and the four-bit bus came later and are described in `sd.md`. TRIM is still deferred.
 
 The driver owns an aligned 512-byte DDR bounce buffer, accepts unaligned DDR
 caller buffers, cleans before transmit and invalidates before/after receive.

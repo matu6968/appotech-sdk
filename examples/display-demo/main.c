@@ -17,6 +17,9 @@ volatile struct demo_control apx_display_demo_control;
 /* Keep the reusable runtime/16 KiB heap in its original 128 KiB reservation.
  * The launch manifest owns and zero-preflights this extra DDR workspace. */
 static uint16_t framebuffer[APX_DISPLAY_WIDTH*APX_DISPLAY_HEIGHT] __attribute__((section(".large_buffer"),aligned(32)));
+/* The native NV21 path needs a byte pitch divisible by 32: 224 on the 220x176 Action panel, 320 on the 320x240 Silvergear panel. tools/display_demo.py
+ * uses the same rule: (width+31)&~31. The planes occupy pitch*height*3/2 bytes, which fits in the RGB565 framebuffer on both. */
+#define NV21_PITCH ((APX_DISPLAY_WIDTH+31u)&~31u)
 static uint32_t submitted;
 static int active;
 static const uint16_t bars[]={0xf800,0x07e0,0x001f,0xffe0,0x07ff,0xf81f,0xffff,0x0000};
@@ -69,8 +72,8 @@ static void pattern(unsigned id) {
         apx_debug_poll();
     }
     if(id==0) {
-        text(44,72,2,"JT5295 SDK");
-        text(77,91,1,"220X176 RGB");
+        text((APX_DISPLAY_WIDTH-10*6*2)/2,APX_DISPLAY_HEIGHT/2-16,2,"JT5295 SDK"); /* 10 characters at scale 2, centred */
+        text((APX_DISPLAY_WIDTH-6*6)/2,APX_DISPLAY_HEIGHT/2+3,1,"RGB565");
         text(14,14,1,"TL");text(APX_DISPLAY_WIDTH-26,14,1,"TR");
         text(14,APX_DISPLAY_HEIGHT-21,1,"BL");text(APX_DISPLAY_WIDTH-26,APX_DISPLAY_HEIGHT-21,1,"BR");
     }
@@ -116,7 +119,7 @@ int main(void) {
                 active=apx_display_fill(32,40,64,80,0xf81f)==0;
             } else if(id==9) { /* host-prepared NV21 in the same owned buffer */
                 active=apx_display_blit_nv21(0,0,APX_DISPLAY_WIDTH,APX_DISPLAY_HEIGHT,
-                    (const uint8_t *)framebuffer,(const uint8_t *)framebuffer+224*176,224)==0;
+                    (const uint8_t *)framebuffer,(const uint8_t *)framebuffer+NV21_PITCH*APX_DISPLAY_HEIGHT,NV21_PITCH)==0;
             } else {
                 apx_display_demo_control.completed_sequence=submitted;
                 printf("display: rejected pattern %u\n",id);

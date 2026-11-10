@@ -9,9 +9,11 @@ int apx_printer_busy(void){return printer_busy;}
 void apx_exception_expect_reset(void) {}
 static uint32_t regs[65536],ticks;
 static unsigned nack,stuck,cleaned,invalidated,overlap,halts,first_byte,bus_address,bus_index,sensor_reg;
-static uint8_t sensor_values[256];
+static uint8_t sensor_values[256],paged[3][256],cur_page;
+static unsigned sensor_writes;
 uint32_t apx_ticks(void) {return ticks++;}
 void apx_delay_ms(uint32_t ms) {ticks+=ms*33;}
+void apx_delay_service(void) {}
 uint32_t apx_spr_read(uint32_t reg) {return regs[reg];}
 void apx_spr_write(uint32_t reg,uint32_t value) {
  if(reg==0xb000&&!(value&1))++halts;
@@ -19,7 +21,10 @@ void apx_spr_write(uint32_t reg,uint32_t value) {
   if(value==0x80){first_byte=1;bus_index=0;}
   if(value&0x10) {
    if(bus_index==1)sensor_reg=regs[0x909c]&255;
-   if(bus_index==2&&!(bus_address&1))sensor_values[sensor_reg]=regs[0x909c]&255;
+   if(bus_index==2&&!(bus_address&1)){
+    sensor_values[sensor_reg]=regs[0x909c]&255;++sensor_writes;
+    if(sensor_reg==0xfd)cur_page=regs[0x909c]&3;else paged[cur_page%3][sensor_reg]=regs[0x909c]&255;
+   }
    ++bus_index;
   }
   if((value&0x10)&&first_byte){bus_address=regs[0x909c];first_byte=0;}
@@ -106,5 +111,27 @@ int main(void) {
 #endif
  nack=1;assert(apx_camera_init()==APX_CAMERA_NACK);apx_camera_shutdown();nack=0;
  stuck=1;assert(apx_camera_init()==APX_CAMERA_TIMEOUT);apx_camera_shutdown();
+ /* Sensor controls: stored per camera, written by apx_camera_service(), page 0 left selected, written back after a new init */
+ {
+  stuck=0;assert(!apx_camera_init());apx_camera_get_info(&i);const enum apx_camera_id cam=(enum apx_camera_id)i.selected; /* whichever camera the steps above left selected */
+  struct apx_camera_controls c;apx_camera_controls_default(&c);
+  c.brightness=0xa0;c.gain=100;c.contrast=50;c.auto_exposure=0;c.auto_white_balance=0;c.exposure_lines=300;c.dynamic_frame_rate=0;c.frame_interval_us=40000;c.blank_lines=12;
+  unsigned w0=sensor_writes;
+  assert(!apx_camera_controls_set(cam,&c)&&sensor_writes==w0); /* storing touches nothing */
+  assert(!apx_camera_service());
+  assert(paged[1][0x18]==0xa0&&paged[1][0x04]==100&&paged[1][0x12]==50&&paged[1][0x02]==3); /* 40 ms = 600 lines -> 3 x 151 */
+  assert(!(paged[1][0x32]&0x11)&&paged[0][0x03]==1&&paged[0][0x04]==44&&paged[0][0x06]==12&&cur_page==0);
+  w0=sensor_writes;assert(!apx_camera_service()&&sensor_writes==w0); /* nothing changed: nothing written */
+  paged[0][0x03]=0xff; /* the sensor's last auto-exposure update overwrites the exposure ... */
+  ticks+=4000;assert(!apx_camera_service()&&paged[0][0x03]==1&&paged[0][0x04]==44); /* ... and it is written again about 100 ms later */
+  w0=sensor_writes;assert(!apx_camera_service()&&sensor_writes==w0);
+  struct apx_camera_controls g;apx_camera_controls_get(cam,&g);assert(g.brightness==0xa0&&!g.auto_exposure);
+  c.gain=10;c.contrast=250;c.exposure_lines=5000;assert(!apx_camera_controls_set(cam,&c));apx_camera_controls_get(cam,&g);
+  assert(g.gain==32&&g.contrast==160&&g.exposure_lines==2047); /* clamped */
+  assert(apx_camera_controls_set((enum apx_camera_id)5,&c)==APX_CAMERA_INVALID&&apx_camera_controls_set(cam,0)==APX_CAMERA_INVALID);
+  apx_camera_shutdown();assert(!apx_camera_init()); /* the register table has reset the sensor: the chosen controls come back */
+  assert(paged[1][0x18]==0xa0&&paged[1][0x04]==32&&paged[1][0x12]==160&&paged[0][0x06]==12&&!(paged[1][0x32]&0x11)&&cur_page==0);
+  unsigned v=0;assert(!apx_camera_sensor_read(1,0x18,&v)&&cur_page==0&&apx_camera_sensor_read(3,0,&v)==APX_CAMERA_RANGE&&apx_camera_sensor_read(0,0x100,&v)==APX_CAMERA_RANGE);
+ }
  puts("Camera model: native/scaled DMA bounds, events, one-shot handoff, rearm, deadlines, NACK and clock restoration passed");
 }

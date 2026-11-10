@@ -13,6 +13,12 @@ FIELDS=('magic','version','state','request_sequence','completed_sequence','patte
         'framebuffer','width','height','pixels_sent','timeouts','frames')
 PATTERNS=('bars','gradient','checker','red','green','blue','white','black','rectangle','native')
 CONTROL=struct.Struct('<12I')
+FILL_PIXELS=64*80 # pattern 8 fills a 64x80 window (examples/display-demo/main.c); the panels are larger than that
+
+def nv21_pitch(width):
+    """The native NV21 path needs a byte pitch divisible by 32; examples/display-demo/main.c (NV21_PITCH) uses the same rule."""
+    return (width+31)&~31
+
 
 def symbols(path):
     with path.open('rb') as f:
@@ -23,8 +29,8 @@ def status(client,address):
     result=dict(zip(FIELDS,CONTROL.unpack(client.read(address,CONTROL.size,width=4))))
     if result['magic']!=0x31505344 or result['version'] not in (1,2):
         raise RuntimeError('display-demo mailbox not initialized')
-    if (result['width'],result['height'])!=(220,176):
-        raise RuntimeError('unexpected panel dimensions: this tool verifies the Action camera 220x176 panel only (the Silvergear ST7789 path is covered by tests/st7789_model.c and research/silvergear)')
+    if not result['width'] or not result['height'] or result['width']&1 or result['height']&1:
+        raise RuntimeError(f"unusable panel dimensions {result['width']}x{result['height']} (the display driver needs even sizes)")
     if result['version']==2:
         result.update(zip(('dma_enabled','dma_transfers','last_transfer_ticks'),struct.unpack('<3I',client.read(address+48,12,width=4))))
     return result
@@ -49,7 +55,7 @@ def show(client,address,pattern):
     client.write(address+12,struct.pack('<I',sequence),width=4,raw=True)
     start=time.monotonic()
     after,exchanges=wait_ready(client,address,sequence)
-    pixels=64*80 if pattern==8 else 176*220
+    pixels=FILL_PIXELS if pattern==8 else after['width']*after['height']
     if ((after['pixels_sent']-before['pixels_sent'])&0xffffffff)!=pixels:
         raise RuntimeError('incorrect pixel count')
     if after['frames']!=before['frames']+1:
@@ -57,7 +63,7 @@ def show(client,address,pattern):
     return {'pattern':PATTERNS[pattern],'seconds':time.monotonic()-start,
             'usb_status_exchanges':exchanges,'pixels':pixels,'status':after}
 
-def nv21_from_rgb565(data,width=220,height=176,pitch=224):
+def nv21_from_rgb565(data,width,height,pitch):
     rgb=struct.unpack('<'+str(width*height)+'H',data)
     result=bytearray(pitch*height*3//2)
     result[pitch*height:]=bytes([128])*(pitch*height//2)
@@ -80,7 +86,8 @@ def nv21_from_rgb565(data,width=220,height=176,pitch=224):
 def native_frame(client,address):
     show(client,address,0)
     ready,_=wait_ready(client,address)
-    data=nv21_from_rgb565(client.read(ready['framebuffer'],77440,width=2))
+    width,height=ready['width'],ready['height']
+    data=nv21_from_rgb565(client.read(ready['framebuffer'],width*height*2,width=2),width,height,nv21_pitch(width))
     client.write(ready['framebuffer'],data,width=4,raw=True)
     entry=show(client,address,9)
     if client.read(ready['framebuffer'],len(data),width=4)!=data:
@@ -90,7 +97,7 @@ def native_frame(client,address):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--elf',type=Path,default=Path(__file__).resolve().parents[1]/'build/display-demo.elf')
+    parser.add_argument('--elf',type=Path,help='display-demo ELF (default: build/display-demo.elf, or build/silvergear-3222882/display-demo.elf when the connected board is the Silvergear)')
     parser.add_argument('--port',default='7-1')
     parser.add_argument('--pattern',choices=PATTERNS)
     parser.add_argument('--test',action='store_true',help='exercise all patterns and verify framebuffer/USB, then restore bars')
@@ -102,26 +109,31 @@ def main():
     parser.add_argument('--output',type=Path)
     args=parser.parse_args()
     if args.stress_seconds<0:parser.error('stress duration must be nonnegative')
-    address=symbols(args.elf)['apx_display_demo_control']
-    manifest=json.loads(args.elf.with_suffix('.manifest.json').read_text())
     with USBTransport(port=args.port) as transport:
         client=DebugClient(transport);info=client.info()
+        if args.elf is None:
+            build=Path(__file__).resolve().parents[1]/'build'
+            args.elf=build/'silvergear-3222882'/'display-demo.elf' if 'silvergear' in info.get('board','') else build/'display-demo.elf'
+        address=symbols(args.elf)['apx_display_demo_control']
+        manifest=json.loads(args.elf.with_suffix('.manifest.json').read_text())
         if info['build_id']!=manifest['build_id']:
             raise RuntimeError('active SDK does not match the selected ELF')
         initial,_=wait_ready(client,address)
         if args.mode:
             client.write(address+48,struct.pack('<I',args.mode=='dma'),width=4,raw=True)
-        report={'build_id':info['build_id'],'usb_speed':info['usb_speed'],
+        report={'build_id':info['build_id'],'board':info.get('board'),'usb_speed':info['usb_speed'],
+                'panel':{'width':initial['width'],'height':initial['height'],'nv21_pitch':nv21_pitch(initial['width'])},
                 'control_address':address,'initial':initial,'patterns':[],
                 'scope':'Driver completion, pixel counts, framebuffer readback and USB responsiveness; optical confirmation requires observing the panel.'}
         if args.pattern=='native' and not args.native_test:parser.error('native requires --native-test to prepare its source')
         if args.test:
             for pattern in range(9):
                 entry=show(client,address,pattern)
-                fb=client.read(entry['status']['framebuffer'],176*220*2,width=2)
+                panel_pixels=entry['status']['width']*entry['status']['height']
+                fb=client.read(entry['status']['framebuffer'],panel_pixels*2,width=2)
                 if 3<=pattern<=7:
                     color=(0xf800,0x07e0,0x001f,0xffff,0)[pattern-3]
-                    if fb!=struct.pack('<H',color)*(176*220):
+                    if fb!=struct.pack('<H',color)*panel_pixels:
                         raise RuntimeError('solid pattern framebuffer readback failed')
                 entry['framebuffer_sha256']=hashlib.sha256(fb).hexdigest()
                 # Readback and INFO travel on the same independent USB path during display use.
@@ -144,7 +156,7 @@ def main():
             if args.stress_mode=='native':
                 native_frame(client,address)
                 prepared,_=wait_ready(client,address)
-                native_data=client.read(prepared['framebuffer'],224*176*3//2,width=4)
+                native_data=client.read(prepared['framebuffer'],nv21_pitch(prepared['width'])*prepared['height']*3//2,width=4)
             start=time.monotonic();frames=exchanges=0;slowest=0
             while time.monotonic()-start<args.stress_seconds:
                 entry=show(client,address,9 if args.stress_mode=='native' else 1+(frames&1))

@@ -25,7 +25,7 @@ static unsigned operation=APXD_SYSTEM;
 static unsigned camera_polls;
 void apx_camera_poll(void) {++camera_polls;}
 extern void apx_debug_reset(void);
-unsigned char __display_dma_start[1],__display_dma_end[1],__extra_ram_start[1],__extra_ram_end[1],__jpeg_buffer_start[1],__jpeg_buffer_end[1];
+unsigned char __display_dma_start[1],__display_dma_end[1],__extra_ram_start[1],__extra_ram_end[1],__jpeg_buffer_start[1],__jpeg_buffer_end[1],__large_buffer_start[1],__large_buffer_end[1];
 uint32_t apx_ticks(void) { return ticks++; }
 void apx_delay_ms(uint32_t milliseconds) { ticks+=milliseconds*33; }
 uint32_t apx_spr_read(uint32_t spr) { return regs[spr]|(spr==0x88e0&&pm_busy?8:0); }

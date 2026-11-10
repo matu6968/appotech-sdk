@@ -57,6 +57,19 @@ int main(int argc,char **argv) {
  apx_jpeg_poll();apx_jpeg_get_info(&i);assert(i.state==APX_JPEG_ERROR);
  encode_padding=0;
  assert(apx_jpeg_encode_start(output,output+224*176,220,176,224,200,160,8,input,1048576)==APX_JPEG_RANGE);
+ { /* encode quality: the quantizers written to the engine's table RAM (zigzag order, luma then chroma) follow libjpeg's scaling of the standard tables */
+  volatile uint8_t *t=(volatile uint8_t *)0x66000;
+  const unsigned stock0=t[0],stock1=t[1],stock64=t[64];
+#define ENCODE_JOB() do{assert(apx_jpeg_encode_start(output,output+224*176,220,176,224,220,176,8,input,1048576)==0);apx_jpeg_poll();apx_jpeg_get_info(&i);assert(i.state==APX_JPEG_DONE);}while(0)
+  apx_jpeg_set_encode_quality(50);ENCODE_JOB();assert(t[0]==16&&t[1]==11&&t[2]==12&&t[64]==17&&t[65]==18&&t[127]==99); /* quality 50 is the standard table itself */
+  apx_jpeg_set_encode_quality(75);ENCODE_JOB();assert(t[0]==8&&t[1]==6&&t[64]==9&&t[127]==50);   /* scale 50% */
+  apx_jpeg_set_encode_quality(20);ENCODE_JOB();assert(t[0]==40&&t[127]==248);                      /* scale 250% */
+  apx_jpeg_set_encode_quality(1);ENCODE_JOB();assert(t[0]==255&&t[64]==255);                       /* clamped to a byte */
+  apx_jpeg_set_encode_quality(100);ENCODE_JOB();assert(t[0]==1&&t[127]==1);                        /* clamped to one */
+  apx_jpeg_set_encode_quality(250);ENCODE_JOB();assert(t[0]==1);                                  /* above 100 is 100 */
+  apx_jpeg_set_encode_quality(0);ENCODE_JOB();assert(t[0]==stock0&&t[1]==stock1&&t[64]==stock64); /* 0 = the stock tables again */
+#undef ENCODE_JOB
+ }
  memcpy(input,original,file_size);before=writes;
  for(size_t n=0;n<623;++n)assert(apx_jpeg_inspect(input,n,&i)!=0);
  assert(apx_jpeg_inspect(input,file_size-2,&i)==APX_JPEG_INVALID);

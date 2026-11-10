@@ -130,6 +130,17 @@ int main(void) {
  ((uint8_t *)(uintptr_t)mic.buffer)[64]=0;put32(input,0);put32(input+4,64);
  assert(apx_microphone_command(3,input,8,response,&size)==0x400+APX_MIC_HARDWARE);
  assert(apx_microphone_command(4,(void *)"x\0tail\0",7,response,&size)==0x400+APX_MIC_HARDWARE);
+ /* continuous capture: a full buffer stops only the DMA (the analog stage stays up); a prepared rearm touches no cache, a plain one cleans and invalidates */
+ apx_mic_stop();assert(apx_mic_rearm(data,64)==APX_MIC_INVALID);assert(apx_mic_capture_start_continuous(data,64,32000)==0);
+ regs[0x9114]=1;apx_mic_poll();apx_mic_get_info(&mic);assert(mic.state==APX_MIC_DONE&&(regs[0x9100]&1));
+ {unsigned c0=cleaned,i0=invalidated;
+  assert(apx_mic_rearm_prepared(data,64)==0&&cleaned==c0&&invalidated==i0);apx_mic_get_info(&mic);
+  assert(mic.state==APX_MIC_CAPTURING&&regs[0x9108]==(uintptr_t)data&&regs[0x910c]==15);
+  assert(apx_mic_rearm_prepared(data,64)==APX_MIC_BUSY&&apx_mic_rearm(data,64)==APX_MIC_BUSY);
+  regs[0x9114]=1;apx_mic_poll();apx_mic_get_info(&mic);assert(mic.state==APX_MIC_DONE);
+  assert(apx_mic_rearm_prepared(data+1,64)==APX_MIC_RANGE&&apx_mic_rearm_prepared(data,SIZE_MAX)==APX_MIC_RANGE);
+  c0=cleaned;i0=invalidated;assert(apx_mic_rearm(data,64)==0&&cleaned>c0&&invalidated>i0);}
+ apx_mic_stop();assert(!(regs[0x9100]&15)&&apx_mic_rearm_prepared(data,64)==APX_MIC_INVALID);
  apx_mic_stop();assert(apx_mic_capture_start(data,64,32000)==0);apx_audio_shutdown();apx_mic_get_info(&mic);assert(mic.state==APX_MIC_OFF);
- assert(!open_files);puts("Audio/microphone models: PCM enable/rates/bounds, half/full DMA, duplex ownership, cache invalidation, cancel/timeout/shutdown, WAV parsing/saving/short writes and guard checks passed");
+ assert(!open_files);puts("Audio/microphone models: PCM enable/rates/bounds, half/full DMA, duplex ownership, cache invalidation, continuous capture with plain and prepared rearm, cancel/timeout/shutdown, WAV parsing/saving/short writes and guard checks passed");
 }

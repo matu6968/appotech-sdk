@@ -26,6 +26,9 @@ int apx_jpeg_decode_start_large(const void *jpeg,size_t bytes,void *output,size_
 int apx_jpeg_encode_start(const void *luma,const void *chroma,unsigned source_width,unsigned source_height,
                          unsigned pitch,unsigned width,unsigned height,unsigned selector,
                          void *jpeg,size_t capacity);
+/* Quality of the JPEGs apx_jpeg_encode_start() makes: 0 (the default) = the stock quantizers (about quality 90); 1..100 = the standard tables scaled with libjpeg's quality
+ * formula. Smaller files and a faster USB/SD path at the price of detail. Takes effect at the next encode. */
+void apx_jpeg_set_encode_quality(unsigned quality);
 void apx_jpeg_poll(void);
 void apx_jpeg_shutdown(void);
 void apx_jpeg_get_info(struct apx_jpeg_info *info);

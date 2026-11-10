@@ -96,7 +96,7 @@ static int bus_wait(void) {
  uint32_t end=apx_ticks()+328;
  while(!(apx_spr_read(0x90a4)&1)) {
   if(apx_deadline_expired(end)){++info.i2c_errors;return APX_CAMERA_TIMEOUT;}
-  apx_maintenance();
+  apx_maintenance();apx_delay_service();
  }
  apx_spr_write(0x90a0,apx_spr_read(0x90a0)|1);return 0;
 }
@@ -120,6 +120,97 @@ static int sensor_read(unsigned reg,unsigned *value) {
  if(!error){apx_spr_write(0x90a0,apx_spr_read(0x90a0)|0x28);error=bus_wait();
   if(!error)*value=apx_spr_read(0x9098)&255;}
  stop=bus_stop();return error?error:stop;
+}
+/* Register access for the ID 0x39 sensor, which has three register pages selected through register 0xfd; page 0 is left selected afterwards (the setup and the mirror
+ * write assume it). Works while a scaled capture runs: the sensor bus is separate from the frame DMA. */
+static int sensor_page_access(unsigned page,unsigned reg,unsigned *value,int write) {
+ if(!initialized||info.sensor_id!=0x39)return APX_CAMERA_UNSUPPORTED;
+ if(page>2||reg>255)return APX_CAMERA_RANGE;
+ int error=sensor_write(0xfd,page);
+ if(!error)error=write?sensor_write(reg,*value):sensor_read(reg,value);
+ if(page){int restore=sensor_write(0xfd,0);if(!error)error=restore;}
+ return error;
+}
+int apx_camera_sensor_read(unsigned page,unsigned reg,unsigned *value) {return value?sensor_page_access(page,reg,value,0):APX_CAMERA_INVALID;}
+int apx_camera_sensor_write(unsigned page,unsigned reg,unsigned value) {return sensor_page_access(page,reg,&value,1);}
+/* Controls: stored per camera, written by apx_camera_service(). The register map (all page 1 unless noted): 0x02 longest exposure with AE in units of 151 lines (1..8, the frame
+ * stretches with the exposure beyond 500 lines), 0x04 gain, 0x12 luma contrast, 0x18 luma offset (higher darker), 0x32 switches (bit 0 AE, bit 4 AWB); page 0 0x03/0x04 exposure
+ * lines (written only with AE off; with AE on it is overwritten every frame). */
+static struct apx_camera_controls wanted[APX_CAMERA_COUNT],applied[APX_CAMERA_COUNT];
+static uint32_t exposure_retry[APX_CAMERA_COUNT]; /* tick at which the manual exposure is written once more after auto exposure was switched off (0 = none) */
+static unsigned dirty[APX_CAMERA_COUNT],chosen[APX_CAMERA_COUNT],controls_applying; /* chosen: the application has set controls for this camera */
+void apx_camera_controls_default(struct apx_camera_controls *c) {
+ c->auto_exposure=1;c->auto_white_balance=1;c->dynamic_frame_rate=1;c->gain=240;c->contrast=136;c->brightness=64;c->blank_lines=0;c->exposure_lines=500;c->frame_interval_us=0;
+}
+void apx_camera_controls_get(enum apx_camera_id id,struct apx_camera_controls *c) {
+ if(!c)return;
+ if((unsigned)id>=APX_CAMERA_COUNT||!chosen[id]){apx_camera_controls_default(c);return;}
+ *c=wanted[id];
+}
+int apx_camera_controls_set(enum apx_camera_id id,const struct apx_camera_controls *c) {
+ if(!c||(unsigned)id>=APX_CAMERA_COUNT)return APX_CAMERA_INVALID;
+ struct apx_camera_controls v=*c;
+ if(v.gain<32)v.gain=32;
+ if(v.contrast>160)v.contrast=160;
+ if(v.exposure_lines<1)v.exposure_lines=1;
+ if(v.exposure_lines>2047)v.exposure_lines=2047;
+ v.auto_exposure=v.auto_exposure!=0;v.auto_white_balance=v.auto_white_balance!=0;v.dynamic_frame_rate=v.dynamic_frame_rate!=0;
+ wanted[id]=v;chosen[id]=dirty[id]=1;return 0;
+}
+static unsigned exposure_cap_units(const struct apx_camera_controls *c) {
+ if(c->dynamic_frame_rate||!c->frame_interval_us)return 8;
+ unsigned lines=(unsigned)((uint64_t)c->frame_interval_us*1000u/APX_CAMERA_LINE_NS),n=lines/151u;
+ return n<1?1:n>8?8:n;
+}
+static int write_if_changed(unsigned reg,unsigned have,unsigned want) {return have==want?0:sensor_write(reg,want);}
+/* `have` = what the sensor holds (applied), `want` = what is wanted; the page registers are switched once per page. */
+static int apply_controls(unsigned cam,int fresh) {
+ if(!initialized||info.sensor_id!=0x39||cam!=selected||controls_applying)return 0;
+ struct apx_camera_controls want,have;
+ apx_camera_controls_get((enum apx_camera_id)cam,&want);
+ if(fresh)apx_camera_controls_default(&have);else have=applied[cam];
+ controls_applying=1;dirty[cam]=0;
+ const unsigned cap_want=exposure_cap_units(&want),cap_have=exposure_cap_units(&have);
+ int error=0;
+ if(cap_want!=cap_have||want.gain!=have.gain||want.contrast!=have.contrast||want.brightness!=have.brightness||
+    want.auto_exposure!=have.auto_exposure||want.auto_white_balance!=have.auto_white_balance) {
+  error=sensor_write(0xfd,1);
+  if(!error)error=write_if_changed(0x02,cap_have,cap_want);
+  if(!error)error=write_if_changed(0x04,have.gain,want.gain);
+  if(!error)error=write_if_changed(0x12,have.contrast,want.contrast);
+  if(!error)error=write_if_changed(0x18,have.brightness,want.brightness);
+  if(!error&&(want.auto_exposure!=have.auto_exposure||want.auto_white_balance!=have.auto_white_balance)) {
+   unsigned sw=0;error=sensor_read(0x32,&sw);
+   if(!error){sw=(sw&~0x11u)|(want.auto_exposure?1u:0u)|(want.auto_white_balance?0x10u:0u);error=sensor_write(0x32,sw);}
+  }
+  int restore=sensor_write(0xfd,0);if(!error)error=restore;
+ }
+
+ if(!error&&want.blank_lines!=have.blank_lines) {error=sensor_write(0x05,0);if(!error)error=sensor_write(0x06,want.blank_lines);} /* page 0 is selected again here */
+ if(!error&&!want.auto_exposure&&(have.auto_exposure||want.exposure_lines!=have.exposure_lines)) {
+  error=sensor_write(0x03,want.exposure_lines>>8);
+  if(!error)error=sensor_write(0x04,want.exposure_lines&255);
+  /* The sensor's last auto-exposure update lands after the switch and overwrites this write (the exposure stays at the long auto value): write it again later. */
+  if(!error&&have.auto_exposure)exposure_retry[cam]=(apx_ticks()+3300)|1u; /* ~100 ms */
+ }
+ if(!error)applied[cam]=want;else dirty[cam]=1; /* try again at the next service */
+ controls_applying=0;return error;
+}
+int apx_camera_service(void) {
+ if(!initialized||selected>=APX_CAMERA_COUNT)return 0;
+ if(exposure_retry[selected]&&(int32_t)(apx_ticks()-exposure_retry[selected])>=0&&!controls_applying) {
+  exposure_retry[selected]=0;
+  struct apx_camera_controls want;apx_camera_controls_get((enum apx_camera_id)selected,&want);
+  if(!want.auto_exposure&&info.sensor_id==0x39) {
+   controls_applying=1;
+   int error=sensor_write(0x03,want.exposure_lines>>8);
+   if(!error)error=sensor_write(0x04,want.exposure_lines&255);
+   controls_applying=0;
+   if(error)return error;
+  }
+ }
+ if(!dirty[selected])return 0;
+ return apply_controls(selected,0);
 }
 int apx_camera_init(void) {
  if(APX_HAS_PRINTER&&apx_printer_busy())return APX_CAMERA_BUSY;
@@ -228,7 +319,10 @@ apx_spr_write(0xb004,0);
  info.native_width=640;info.native_height=480;
 #endif
  info.width=info.pitch=info.native_width;info.height=info.native_height;
- info.error=0;info.state=APX_CAMERA_READY;initialized=1;return 0;
+ info.error=0;info.state=APX_CAMERA_READY;initialized=1;
+ /* The setup table has just given the sensor its default controls: write back whatever was chosen for this camera. */
+ if(info.sensor_id==0x39){int e=apply_controls(selected,1);(void)e;}
+ return 0;
 }
 int apx_camera_buffer_busy(const void *buffer,size_t bytes) {
  if(info.state!=APX_CAMERA_CAPTURING||!bytes)return 0;

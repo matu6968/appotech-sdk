@@ -150,3 +150,100 @@ Writer payload: `silvergear-full-restore.bin` sha256 `2e4e4ba0ad02bfe9b0026bd689
   block (`0x886c/0x8870/0x8874`, DAC and amplifier) with the PLL-compensated selectors in `board.h`, never checked against this
   camera's speaker/microphone wiring (the stock registry has no audio device, so any mute/amp-enable line is unidentified, like the
   flash LED was). The audio demos also preview an Action-sized JPEG from the SD card and do not use the Silvergear display geometry.
+
+## TinyUSB cold-boot test (prepared 2026-11-08, nothing written to any camera)
+Purpose: show that `USB_STACK=tinyusb` (src/tusb/, see its README) comes up from a cold SPI boot on this board before it becomes the default.
+Every earlier cold-boot failure was invisible to a RAM launch, and the PHY bring-up in `src/tusb/dcd_apx.c` is the legacy sequence copied, so
+only this test can prove it. Images are the same `printer-camera-demo` as the one installed now (`43a1bbc8...`, legacy USB), so the only change
+is the USB stack. Packed from `flash-read-sdk-20261108.bin`; photo sectors and the trace sectors `0x3fe000/0x3ff000` are not touched.
+
+| Image (in `stock-backups/silvergear-3222882-20261108/`) | Build | image sha256 | sectors that differ from the installed `43a1bbc8...` |
+| --- | --- | --- | --- |
+| `install-tinyusb-trace.spi.bin` (`USB_STACK=tinyusb APX_SPI_TRACE=1 HEAP_SIZE=8192`) | `c577eb9b93104aaf` | `5f0641dda6b197a317304ebe5546dd0b3a1c35bdbf9a554e5e42dac26be48b91` | 160 (`0x0..0x129000`) |
+| `install-tinyusb-production.spi.bin` (`USB_STACK=tinyusb`) | `1880dd1d2f6ae486` | `2e00b041b2a082611dcc6c571bf84a678e8e6881edc10a41ef6e081dcead4a6d` | 159 (`0x0..0x128000`) |
+
+Run the trace image first (it records the USB timeline: first poll, first SETUP, configured, PHY wait, the PHY/clock registers, as the legacy driver did).
+Install from forced BootROM, keep Power held (backup and journal are made first):
+
+    cd appotech-sdk; D=../stock-backups/silvergear-3222882-20261108
+    PYTHONPATH=../apxtool/src python3 -m apxtool.silvergear_install $D/install-tinyusb-trace.spi.bin \
+      --expect-sha256 5f0641dda6b197a317304ebe5546dd0b3a1c35bdbf9a554e5e42dac26be48b91 \
+      --payload $D/silvergear-full-restore.bin \
+      --expect-payload-sha256 2e4e4ba0ad02bfe9b0026bd6895791e9c312d553d85731ff5789eed56d543e51 \
+      --output $D/install-tinyusb-trace --wait-flash 30 --yes      # without --yes it is an offline preview
+
+Pass criteria, after releasing the short and cold-booting: enumerates as `1908:3319 JT5295 SDK Debug` at high speed with the cable plugged at power-on;
+`apxtool debug info` shows `boot_source: spi` and build `c577eb9b93104aaf`; also from battery with no USB, plugging the cable ten seconds later;
+unplug and replug three times; `apxtool debug system reboot` returns to the SPI image; `tools/test_usb.py` passes (its scratch RAM at `0x021a0000` must read as zeros
+first); the demo's Power-click LED toggle and 2 s Power-hold power-off still work. On a failure that leaves the CPU running, read the trace sector with
+`rom-rescue trace` (needs forced BootROM) and look at `U11` (PHY wait) and the USB marks.
+
+Roll back at any time, from forced BootROM with the same tool and `install-poweroff.spi.bin` (sha256 `43a1bbc8741393e6b0771f5247c2fd8339b5fe4f96e39d47e6ea5b1cd14788c1`,
+the legacy image that cold-boots here), or over USB with `apxtool debug flash install` while a TinyUSB image is enumerating.
+
+Caveats: (1) TinyUSB's code sits in the extra-RAM bank (`.usb_code`, `linker/ram.ld`) because the image no longer fit the 128 KB runtime window by 9.8 KB;
+that layout has been built and inspected but **not yet run on hardware**; run it from RAM first (`debug bootrom` then `sdk launch` of
+`build/silvergear-3222882-tinyusb/printer-camera-demo.manifest.json`), which writes nothing. (2) Margins are thin: about 4 KB left in extra RAM
+(`__extra_ram_end` `0x022defe0`, codec RAM starts at `0x022e0000`) and about 3.9 KB of runtime window on the production build. (3) `printer-camera-demo`
+under TinyUSB has not been exercised at all (the printing, camera and SD paths call `apx_usb_poll()` while they wait; that is guarded against re-entry but untested).
+
+### Result log: TinyUSB trace image (2026-11-08, owner flashed it from forced BootROM)
+- **Install verified.** `silvergear_install` journal: status `verified`, before `43a1bbc8...` (legacy power-off image), target `5f0641dd...`, 160 sectors written and
+  verified (24 starting at `0x2000..0x19000`, 135 starting at `0xa2000..0x127000`, then sector 0, the boot header, last), full-chip readback sha256 = target. Backup
+  `install-tinyusb-trace-1794145244872961331.before.bin`. Owner report: "USB works on the TinyUSB build".
+- **Cold boot confirmed from this side** (read-only): `debug info` on the installed image reports build `c577eb9b93104aaf`, `boot_source: spi`, USB high speed (480 Mbps),
+  `log_dropped 0`. Trace sector `0x3fe000` (`apxtool trace`): SPI entry, saved stack valid, PM init without the failure bit (`0x1b` bit 23 clear, reg `0x5a`
+  `0x09 -> 0x09`), timer control `0x721`, first `apx_usb_poll()` at 0x7f80 ticks (0.98 s), first host request at 0x8ed7 (1.12 s), host set the configuration.
+  Same sequence as the legacy cold boot. The `0x1d` (configured) mark's argument reads 0; it is a flash slot that can only be cleared, so a second write (the cable was
+  replugged, `suspend_count` was 5) would AND into it. Unproven; `tud_mount_cb` now records only the first mount (source change, not in the installed image).
+- **Not done:** battery boot with the cable plugged in later, repeated unplug/replug cycles, Power-click LED toggle and Power-hold power-off were not checked by me
+  (the owner may have). The production image (watchdog running) has **not** been cold-booted.
+- **`tools/test_usb.py` resets the trace image; not a TinyUSB fault.** Run against the SPI-booted trace image the test passed its first two checks and the camera
+  rebooted (about 2 s) in the third. Cause: a trace build stops the watchdog on SPI boot (`runtime.c`, `APX_SPI_TRACE && !APX_TRACE_KEEP_WDT`; `system info` shows
+  `enabled 0`), and the test writes `0x5001d` to SPR `0x880c`, which re-arms the *hardware* watchdog while the SDK's software flag says off, so nothing feeds it.
+  Reproduced alone: with only `apxtool debug spr-write 0x880c 0x5001d` the device vanished 2.04 s later, no other traffic. No exception record.
+  Control runs, same camera, same test, RAM launch (watchdog on and fed): legacy build `52dfbc62f77ed776` passes all 5 checks (5,172 cycles / 22.7 MB in 30 s);
+  TinyUSB production build `1880dd1d2f6ae486` passes all 5 checks (4,458 cycles / 19.5 MB in 30 s, about 14% fewer, as on the Action camera). That also runs the extra-RAM
+  placement and `printer-camera-demo` startup under TinyUSB on this board. `debug system reboot` from the TinyUSB RAM image returns to the SPI image. So: do not run
+  `test_usb.py` against a trace-built SPI image; use the production image or a RAM launch.
+- **Decision still open:** the default stays `legacy`. What remains before flipping it is the production image cold-booting (watchdog on). Over USB from the running TinyUSB
+  image: `apxtool debug flash install install-tinyusb-production.spi.bin --backup ... --expect-current-sha256 <re-read chip hash>` (also the first erase/program under
+  TinyUSB), then cold boot and `tools/test_usb.py`. The chip now differs from the packed trace image by at least the trace sector `0x3fe000`, so re-read the hash first.
+
+### Result log: TinyUSB production image installed over USB (2026-11-08, owner-approved)
+- **Installed from the running TinyUSB trace image, no forced BootROM**, with `apxtool debug flash install install-tinyusb-production.spi.bin --backup
+  usb-install-tinyusb-production.before.bin --expect-current-sha256 ba01aca7...e299` (the chip hash re-read just before; the chip equalled the packed trace image except
+  the trace sector `0x3fe000`, as expected). 161 sectors written (160 image sectors plus the trace sector erased), boot header last, journal `verified`, readback sha256
+  `2e00b041b2a082611dcc6c571bf84a678e8e6881edc10a41ef6e081dcead4a6d` = image; an independent dump afterwards is byte-identical to the image; the backup's hash is the
+  pre-write chip hash. Photo sectors and `0x3ff000` untouched. This is the first erase/program of the SDK flash path under TinyUSB. The trace sector's cold-boot log was
+  kept first as `trace-sector-3fe000-tinyusb-coldboot.bin`.
+- **Started from SPI after a graceful reboot (`debug system reboot`), not a cold boot:** build `1880dd1d2f6ae486`, `boot_source: spi`, high speed, watchdog `enabled 1`,
+  `automatic 1`, control `0x1d` (fed by the SDK).
+- **`tools/test_usb.py` passed all 5 checks on it, 60 s soak:** 8,823 cycles, 38.7 MB verified, 480 Mbps, scratch restored, no unplanned disconnect, `suspend_count 0`.
+  Same rate as the RAM launch of this build (about 147 cycles/s against 149).
+- **Still not done: a true cold boot of the production image** (power-off, then power on from battery and with the cable plugged in at power-on), repeated replug,
+  the Power-click LED toggle and the 2 s Power-hold power-off on this image. The default `USB_STACK` stays `legacy` until that is confirmed.
+- Roll back (forced BootROM or over USB while it enumerates): `install-poweroff.spi.bin`, sha256 `43a1bbc8741393e6b0771f5247c2fd8339b5fe4f96e39d47e6ea5b1cd14788c1`.
+
+### Result log: TinyUSB production image, true cold boots (2026-11-08, owner)
+- Owner power-cycled the camera with the installed production image (build `1880dd1d2f6ae486`): **all checks passed, the USB device renumerated on all three replug tries**
+  ("all passes with no issue"). The exact list asked for was: battery boot with the cable plugged in later, boot with the cable already in, three replugs, Power-click LED
+  toggle, 2 s Power-hold power-off. The report was a single "all pass"; individual results were not itemised.
+- Consequence: **`USB_STACK` now defaults to `tinyusb` for `BOARD=silvergear-3222882`** (Makefile `DEFAULT_USB_STACK`). `BOARD=action-vision` stays `legacy`, because TinyUSB has only
+  RAM-launched there. The non-default stack builds in a suffixed directory (`build/silvergear-3222882-legacy`, `build-tinyusb`). Also fixed: `libappotech.a` is rebuilt from scratch
+  (`ar rcs` updates in place, so a stale `usb.o` from the other stack could have stayed in the archive).
+- Build matrix at the new defaults, every example on both boards: all build except `camera-demo` on Silvergear (intentional `#error`) and `printer-sd-demo` /
+  `printer-sd-compare` on Action (Silvergear-only: `photo_prepare.o` is linked only for that board). No region overflow with TinyUSB on any Silvergear example (including `lvgl-demo`).
+
+### 2026-11-08 Phase 2 (USB modes + mass storage) on this camera, RAM launches only
+`examples/usb-modes` RAM-launched (build `6d7ff9b7a09df2e4`): debug mode, then 1908:3318 mass storage with a FAT12 RAM disk, back to debug, repeatedly. 20/20 on `tools/test_usb_msc.py`;
+details and the test pitfall in `src/tusb/README.md`. Nothing was written to flash or the SD card; the SPI image is still the TinyUSB production build `1880dd1d`.
+
+### 2026-11-08 SD card as USB mass storage, read-only (RAM launch; nothing written to flash or the card)
+`usb-modes` with `-DAPX_MODES_SD=1` presents the card write-protected: 16/16 on `tools/test_usb_msc_sd.py`, files and raw sectors identical to debug-link reads, driver counters
+59,817 reads / 0 writes / 0 errors. Details in `src/tusb/README.md`. The camera was returned to the production image (`1880dd1d`) afterwards.
+
+### Update 2026-11-10: the Action Vision is on TinyUSB by default too
+`BOARD=action-vision` now defaults to `USB_STACK=tinyusb` as well (Makefile `DEFAULT_USB_STACK`), after the Action's TinyUSB was tested extensively over RAM launches (research/action-vision-compat.md). The
+legacy stack builds with `USB_STACK=legacy` in `build-legacy/` (Action) or `build/silvergear-3222882-legacy`. The Action has still not cold-booted a TinyUSB image from SPI; the build matrix at the new defaults
+(every example on both boards) builds everything except the three known board-specific cases.

@@ -59,6 +59,10 @@
 #define APX_BATTERY_OFFSET_MV 30u
 #define APX_SD_CLOCK_SOURCE_HZ 144000000u
 #define APX_SD_CLOCK_HZ 24000000u
+/* One data line only: stock's 4-bit route would use PA3 and PE10/PE11, which here are printer motor phases and the cameras' power-down controls. */
+#ifndef APX_SD_BUS_WIDTH_MAX
+#define APX_SD_BUS_WIDTH_MAX 1
+#endif
 #ifndef APX_CPU_MHZ
 #define APX_CPU_MHZ 144
 #endif

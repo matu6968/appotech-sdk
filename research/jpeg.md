@@ -107,7 +107,12 @@ least as large as source. Encoder downscaling is rejected: the traced stock
 sequence clamps its source window and the initial downscale probe corrupted
 blocks. A native 220×176 sample avoids this unsupported path and hardware
 scales it to every requested resolution. The selector's quality mapping is
-not calibrated; acceptance uses selector 8. The SDK is a single-job engine,
+not calibrated; acceptance uses selector 8. Measured at 640x480 on a busy scene (2026-11-09, `tools/sensor_probe.py encode`): selector 0 gives 85 KB, 5 gives 128 KB,
+8 gives 85 KB, 15 gives 64 KB, and selectors 1..4 produce more than the 128 KiB buffer holds (the encoder reports the truncated output as an error): the selector is a
+coarse extra, not a quality scale. **The quantizer tables the SDK writes at 0x66000 are what the engine quantizes with**, so `apx_jpeg_set_encode_quality(1..100)`
+(standard Annex K tables scaled with libjpeg's formula; 0 = the stock quality-90 tables, which it reproduces to within 0.2%) gives a real quality scale: the same
+scene is 84 / 47 / 36 / 32 / 27 / 23 / 17 KB at quality 90 / 75 / 60 / 50 / 40 / 30 / 20, encode time unchanged at 4.6 ms, all files decode in ffmpeg with matching
+brightness and contrast statistics. The SDK is a single-job engine,
 not an ISP capture or continuous MJPEG pipeline.
 
 ## Runtime, ownership and host operations

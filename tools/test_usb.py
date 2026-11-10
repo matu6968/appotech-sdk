@@ -52,6 +52,12 @@ def main():
         status(Frame(Operation.READ,width=4,address=scratch+1,length=4),2)
         status(Frame(Operation.READ,address=0xfffffff0,length=32),2)
         status(Frame(Operation.WRITE,address=0x02180000,length=1,payload=b'\0'),4)
+        # every RAM window the image reports as its own (runtime, stack and whichever of display, extra, application-buffer and JPEG it has)
+        # must refuse an ordinary write at both ends; the free DDR below them must not
+        for start,end in client.info()['owned_ram']:
+            status(Frame(Operation.WRITE,address=start,length=1,payload=b'\0'),4)
+            status(Frame(Operation.WRITE,address=end-1,length=1,payload=b'\0'),4)
+        report['owned_ram_windows']=len(client.info()['owned_ram'])
         status(Frame(Operation.READ,space=3,address=scratch,length=1),3)
         status(Frame(Operation.INFO,status=1),1)
         status(Frame(Operation.INFO,address=1),1)

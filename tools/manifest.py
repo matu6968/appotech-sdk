@@ -49,8 +49,15 @@ with args.elf.open('rb') as stream:
     large_section=elf.get_section_by_name('.large_buffer')
     lvgl_code=elf.get_section_by_name('.lvgl_code')
     lvgl_tables=elf.get_section_by_name('.lvgl_tables')
-    if any(section and section['sh_size'] for section in (fatfs_section,large_section,jpeg_code,audio_code,camera_code,peripheral_code,lvgl_code,lvgl_tables)):
+    usb_code=elf.get_section_by_name('.usb_code')
+    usb_tables=elf.get_section_by_name('.usb_tables')
+    extra_bss=elf.get_section_by_name('.extra_bss')
+    if any(section and section['sh_size'] for section in (fatfs_section,jpeg_code,audio_code,camera_code,peripheral_code,usb_code,usb_tables,extra_bss,lvgl_code,lvgl_tables)):
         reservations.append([0x02220000,0xc0000])
+    # The NOLOAD application buffers live in free DDR below the runtime window. Windows are listed in this fixed order
+    # (apxtool.sdk.ALLOWED_RESERVATIONS and the SDK's own owned_ram report use it too).
+    if large_section and large_section['sh_size']:
+        reservations.append([0x02080000,0x80000])
     if (jpeg_section and jpeg_section['sh_size']) or \
        (lvgl_code and lvgl_code['sh_size']) or (lvgl_tables and lvgl_tables['sh_size']):
         reservations.append([0x022e0000,0x120000])
@@ -83,7 +90,7 @@ with args.elf.open('rb') as stream:
         manifest['fatfs_tables']={'address':fatfs_section['sh_addr'],'bytes':fatfs_section['sh_size'],'reservation_bytes':0xc0000}
     if large_section and large_section['sh_size']:
         manifest['application_buffer']={'address':large_section['sh_addr'],'bytes':large_section['sh_size'],
-            'reservation_bytes':0xc0000,'initialization':'zero enforced by launch preflight'}
+            'reservation_bytes':0x80000,'initialization':'zero enforced by launch preflight'}
     if dma_section and dma_section['sh_size']:
         manifest['display_dma_workspace']={'address':dma_section['sh_addr'],
             'bytes':dma_section['sh_size'],'reservation_bytes':65536,

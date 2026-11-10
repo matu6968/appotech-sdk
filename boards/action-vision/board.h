@@ -25,6 +25,11 @@
 #define APX_BATTERY_OFFSET_MV 20u
 #define APX_SD_CLOCK_SOURCE_HZ 144000000u
 #define APX_SD_CLOCK_HZ 24000000u
+/* Widest SD bus to try. Four bits use PA3 and PE10/PE11 (stock's unreachable 4-bit route); nothing else in the SDK drives them on this board, and the driver
+ * verifies the wiring before it keeps the wide bus (research/sd.md). */
+#ifndef APX_SD_BUS_WIDTH_MAX
+#define APX_SD_BUS_WIDTH_MAX 4
+#endif
 #ifndef APX_CPU_MHZ
 #define APX_CPU_MHZ 144
 #endif

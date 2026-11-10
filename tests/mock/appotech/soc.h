@@ -14,6 +14,7 @@ uint32_t apx_spr_read(uint32_t spr);
 void apx_spr_write(uint32_t spr,uint32_t value);
 uint32_t apx_ticks(void);
 void apx_maintenance(void);
+void apx_delay_service(void);
 void apx_delay_ms(uint32_t milliseconds);
 int apx_dma_clean(const void *buffer,size_t length);
 int apx_dma_invalidate(void *buffer,size_t length);

@@ -94,7 +94,7 @@ Silvergear reports are in `research/silvergear/`.
 
 | Example | Action camera | Silvergear |
 | --- | --- | --- |
-| `usb-debug`, `display-demo` | yes | builds (geometry from the board header); `tools/display_demo.py` is Action-only |
+| `usb-debug`, `display-demo` | yes | builds (geometry from the board header); `tools/display_demo.py` takes the panel size from the demo and works on both boards (220x176 Action, 320x240 Silvergear). Hardware-run on the Silvergear only: patterns, DMA and native NV21 self-tests, benchmark, 15 s stress, 0 timeouts; the Action camera was not connected |
 | `gpio-demo` | yes | key tiles, flash LED on a Power click (board-aware layout) |
 | `sd-demo` | yes | hardware: mount, stdio read (smaller heap to fit the runtime window) |
 | `jpeg-demo` | yes | hardware: preview/decode on the 320x240 panel, hardware encoder byte-identical to Action |
@@ -123,6 +123,8 @@ The benchmark and widgets demo assets, LVGL code, and renderer heap use the
 preflighted extra DDR and codec-RAM reservations. Other examples do not compile
 or link LVGL. As with JPEG demos, if the launch tool reports codec RAM is
 occupied, back it up before using the launcher's `--reclaim-jpeg-ram` option.
+The NOLOAD application buffers (`.large_buffer`: previews, decoder planes, workspaces, LVGL and framebuffer arrays) sit in their own 512 KiB window at
+`0x02080000`, in the free DDR below the runtime window; see apxtool's README for `--reclaim-low-ram`, needed only when that RAM is occupied.
 Build with `make EXAMPLE=lvgl-demo LVGL_DEMO=widgets` to run the interactive
 widgets demo instead; it is useful for checking keypad navigation as well as
 rendering.
@@ -392,9 +394,11 @@ Paths use UTF-8; LFN buffers use picolibc malloc/free to avoid consuming the
 4 KiB stack. Allocation can fail normally if the 16 KiB heap is exhausted. RTC
 is not implemented yet, so timestamps are fixed. CSD permanent/temporary write
 protection and the card's write-protection response are respected. The socket
-has no verified mechanical write-protect sensor. The backend uses synchronous
-single-block CMD24 writes and waits for card programming to finish; multi-block
-transfers, four-bit mode and TRIM remain deferred.
+has no verified mechanical write-protect sensor. Writes of more than one
+sector use an open-ended CMD25 stream, reads an open-ended CMD18 stream (straight into the
+caller's buffer for multi-sector calls), the card is switched to high speed (48 MHz), and boards whose
+PCB wires DAT1..DAT3 (Action Vision) run a four-bit bus, verified at init; TRIM remains deferred. See
+`research/sd.md`.
 
 Applications include `appotech/sd.h` for sectors and `appotech/storage.h` for
 FatFs integration; add `-Ithird_party/fatfs` and link `libappotech.a` plus
